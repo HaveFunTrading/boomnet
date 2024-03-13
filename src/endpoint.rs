@@ -1,0 +1,123 @@
+use std::fmt::{Display, Formatter};
+use std::io;
+use std::net::SocketAddr;
+
+use url::{ParseError, Url};
+
+pub struct ConnectionInfo {
+    pub host: String,
+    pub port: u16,
+}
+
+impl Display for ConnectionInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
+}
+
+impl TryFrom<Url> for ConnectionInfo {
+    type Error = io::Error;
+
+    fn try_from(url: Url) -> Result<Self, Self::Error> {
+        Ok(ConnectionInfo {
+            host: url
+                .host_str()
+                .ok_or_else(|| io::Error::other("host not present"))?
+                .to_owned(),
+            port: url
+                .port_or_known_default()
+                .ok_or_else(|| io::Error::other("port not present"))?,
+        })
+    }
+}
+
+impl TryFrom<Result<Url, ParseError>> for ConnectionInfo {
+    type Error = io::Error;
+
+    fn try_from(result: Result<Url, ParseError>) -> Result<Self, Self::Error> {
+        match result {
+            Ok(url) => Ok(url.try_into()?),
+            Err(err) => Err(io::Error::other(err)),
+        }
+    }
+}
+
+pub trait Endpoint {
+    type Target;
+
+    fn connection_info(&self) -> io::Result<ConnectionInfo>;
+
+    fn create_target(&self, addr: SocketAddr) -> io::Result<Self::Target>;
+
+    fn poll(&self, target: &mut Self::Target) -> io::Result<()>;
+
+    fn can_recreate(&self) -> bool {
+        true
+    }
+}
+
+pub trait Context {
+    // marker trait
+}
+
+pub trait EndpointWithContext<C> {
+    type Target;
+
+    fn connection_info(&self) -> io::Result<ConnectionInfo>;
+
+    fn create_target(&self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target>;
+
+    fn poll(&self, target: &mut Self::Target, context: &mut C) -> io::Result<()>;
+
+    fn can_recreate(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(all(feature = "ws", feature = "tls"))]
+pub mod ws {
+    use std::io;
+    use std::io::{Read, Write};
+    use std::net::SocketAddr;
+
+    use url::Url;
+
+    use crate::endpoint::{ConnectionInfo, EndpointWithContext};
+    use crate::stream::tls::TlsStream;
+    use crate::ws::Websocket;
+
+    pub type TlsWebsocket<S> = Websocket<TlsStream<S>>;
+
+    pub trait TlsWebsocketEndpointWithContext<C> {
+        type Stream: Read + Write;
+
+        fn url(&self) -> &str;
+
+        fn create_websocket(&self, addr: SocketAddr, context: &mut C)
+            -> io::Result<Websocket<TlsStream<Self::Stream>>>;
+
+        fn poll(&self, ws: &mut Websocket<TlsStream<Self::Stream>>, context: &mut C) -> io::Result<()>;
+    }
+
+    impl<T, C> EndpointWithContext<C> for T
+    where
+        T: TlsWebsocketEndpointWithContext<C>,
+    {
+        type Target = Websocket<TlsStream<T::Stream>>;
+
+        #[inline]
+        fn connection_info(&self) -> io::Result<ConnectionInfo> {
+            Url::parse(self.url()).try_into()
+        }
+
+        #[inline]
+        fn create_target(&self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target> {
+            self.create_websocket(addr, context)
+        }
+
+        #[inline]
+        fn poll(&self, target: &mut Self::Target, context: &mut C) -> io::Result<()> {
+            self.poll(target, context)
+        }
+    }
+}

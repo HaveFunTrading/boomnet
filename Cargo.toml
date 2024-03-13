@@ -1,0 +1,48 @@
+[package]
+name = "boomnet"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+disable-checks = []
+mio = ["dep:mio"]
+tls = ["rustls", "webpki-roots"]
+ws = ["rand", "base64", "http", "httparse"]
+
+[dependencies]
+url = "2.5.0"
+thiserror = "1.0.50"
+log = "0.4.20"
+socket2 = { version = "0.5.5", features = ["all"] }
+pnet = "0.34.0"
+mio = { version = "0.8.10", features = ["net", "os-poll"], optional = true }
+rustls = { version = "0.22.1", optional = true }
+webpki-roots = { version = "0.26.0", optional = true }
+rand = { version = "0.8.5", optional = true }
+base64 = { version = "0.21.5", optional = true }
+httparse = { version = "1.8.0", optional = true }
+http = { version = "1.0.0", optional = true }
+
+[dev-dependencies]
+anyhow = "1"
+env_logger = "0.10.1"
+ansi_term = "0.12.1"
+
+[lints.clippy]
+uninit_assumed_init = "allow"
+mem_replace_with_uninit = "allow"
+
+[lints.rust]
+dead_code = "warn"
+
+[profile.release]
+debug = true
+
+[[example]]
+name = "ws_client"
+required-features = ["tls", "ws"]
+
+[[example]]
+name = "io_service_with_context"
+required-features = ["mio", "tls", "ws"]

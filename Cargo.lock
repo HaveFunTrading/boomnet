@@ -39,6 +39,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "327762f6e5a765692301e5bb513e0d9fef63be86bbc14528052b1cd3e6f03e07"
 
 [[package]]
+name = "boomnet"
+version = "0.1.0"
+dependencies = [
+ "ansi_term",
+ "anyhow",
+ "base64",
+ "env_logger",
+ "http",
+ "httparse",
+ "log",
+ "mio",
+ "pnet",
+ "rand",
+ "rustls",
+ "socket2",
+ "thiserror",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
 name = "bytes"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -213,27 +234,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "net"
-version = "0.4.0-dev"
-dependencies = [
- "ansi_term",
- "anyhow",
- "base64",
- "env_logger",
- "http",
- "httparse",
- "log",
- "mio",
- "pnet",
- "rand",
- "rustls",
- "socket2",
- "thiserror",
- "url",
- "webpki-roots",
 ]
 
 [[package]]

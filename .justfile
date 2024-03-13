@@ -11,12 +11,12 @@ init:
 check:
     cargo check
     cargo fmt --all -- --check
-    cargo clippy --all-targets --all-features
+    cargo clippy --all-targets
 
 # fix code
 fix:
     cargo fmt --all
-    cargo clippy --all-targets --all-features --allow-dirty --fix
+    cargo clippy --allow-dirty --fix
 
 # build project
 build:

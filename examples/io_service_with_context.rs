@@ -5,15 +5,15 @@ use std::time::Duration;
 use ansi_term::Color::{Green, Purple, Red, Yellow};
 use log::info;
 
-use bnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
-use bnet::endpoint::Context;
-use bnet::idle::IdleStrategy;
-use bnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use bnet::select::mio::MioSelector;
-use bnet::service::IntoIOServiceWithContext;
-use bnet::stream::mio::{IntoMioStream, MioStream};
-use bnet::stream::BindAndConnect;
-use bnet::ws::{IntoTlsWebsocket, WebsocketFrame};
+use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
+use boomnet::endpoint::Context;
+use boomnet::idle::IdleStrategy;
+use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
+use boomnet::select::mio::MioSelector;
+use boomnet::service::IntoIOServiceWithContext;
+use boomnet::stream::mio::{IntoMioStream, MioStream};
+use boomnet::stream::BindAndConnect;
+use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
 struct TradeEndpoint {
     id: u32,

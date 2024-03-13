@@ -1,19 +1,21 @@
+#![allow(unused)]
+
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-use bnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
 use log::info;
 
-use bnet::endpoint::Context;
-use bnet::idle::IdleStrategy;
-use bnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use bnet::select::mio::MioSelector;
-use bnet::service::IntoIOServiceWithContext;
-use bnet::stream::mio::{IntoMioStream, MioStream};
-use bnet::stream::tls::TlsStream;
-use bnet::stream::BindAndConnect;
-use bnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
+use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
+use boomnet::endpoint::Context;
+use boomnet::idle::IdleStrategy;
+use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
+use boomnet::select::mio::MioSelector;
+use boomnet::service::IntoIOServiceWithContext;
+use boomnet::stream::mio::{IntoMioStream, MioStream};
+use boomnet::stream::tls::TlsStream;
+use boomnet::stream::BindAndConnect;
+use boomnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
 
 struct FeedContext;
 
@@ -53,7 +55,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
 }
 
 struct TradeEndpoint {
-    _id: u32,
+    id: u32,
     url: &'static str,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
@@ -65,7 +67,7 @@ impl TradeEndpoint {
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
-            _id: id,
+            id,
             url,
             net_iface,
             instrument,
@@ -103,7 +105,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 }
 
 struct TickerEndpoint {
-    _id: u32,
+    id: u32,
     url: &'static str,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
@@ -120,7 +122,7 @@ impl TickerEndpoint {
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
-            _id: id,
+            id,
             url,
             net_iface,
             instrument,

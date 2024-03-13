@@ -2,7 +2,7 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-use bnet::endpoint::ws::{TlsWebsocketEndpointWithContext, TlsWebsocket};
+use bnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
 use log::info;
 
 use bnet::endpoint::Context;
@@ -10,9 +10,9 @@ use bnet::idle::IdleStrategy;
 use bnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use bnet::select::mio::MioSelector;
 use bnet::service::IntoIOServiceWithContext;
-use bnet::stream::BindAndConnect;
 use bnet::stream::mio::{IntoMioStream, MioStream};
 use bnet::stream::tls::TlsStream;
+use bnet::stream::BindAndConnect;
 use bnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
 
 struct FeedContext;
@@ -87,7 +87,13 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
         ws.send_text(
             true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
+            Some(
+                format!(
+                    r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#,
+                    self.instrument
+                )
+                .as_bytes(),
+            ),
         )?;
 
         Ok(ws)
@@ -142,7 +148,13 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
 
         ws.send_text(
             true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@ticker"],"id":1}}"#, self.instrument).as_bytes()),
+            Some(
+                format!(
+                    r#"{{"method":"SUBSCRIBE","params":["{}@ticker"],"id":1}}"#,
+                    self.instrument
+                )
+                .as_bytes(),
+            ),
         )?;
 
         Ok(ws)
@@ -158,7 +170,6 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
 }
 
 fn main() -> anyhow::Result<()> {
-
     env_logger::init();
 
     let mut context = FeedContext;
@@ -166,8 +177,18 @@ fn main() -> anyhow::Result<()> {
     let mut io_service =
         MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
 
-    let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new(0, "wss://stream.binance.com:443/ws", None, "btcusdt"));
-    let trade = MarketDataEndpoint::Trade(TradeEndpoint::new(1, "wss://stream.binance.com:443/ws", None, "ethusdt"));
+    let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new(
+        0,
+        "wss://stream.binance.com:443/ws",
+        None,
+        "btcusdt",
+    ));
+    let trade = MarketDataEndpoint::Trade(TradeEndpoint::new(
+        1,
+        "wss://stream.binance.com:443/ws",
+        None,
+        "ethusdt",
+    ));
 
     io_service.register(ticker);
     io_service.register(trade);

@@ -72,7 +72,13 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
         ws.send_text(
             true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
+            Some(
+                format!(
+                    r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#,
+                    self.instrument
+                )
+                .as_bytes(),
+            ),
         )?;
 
         Ok(ws)

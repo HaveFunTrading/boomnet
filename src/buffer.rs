@@ -46,7 +46,13 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
         fn compact<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize>(
             buf: &mut ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>,
         ) {
-            unsafe { ptr::copy(buf.inner.as_ptr().add(buf.head), buf.inner.as_mut_ptr(), buf.available()) }
+            unsafe {
+                ptr::copy(
+                    buf.inner.as_ptr().add(buf.head),
+                    buf.inner.as_mut_ptr(),
+                    buf.available(),
+                )
+            }
             buf.tail -= buf.head;
             buf.head = 0;
         }

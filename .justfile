@@ -13,6 +13,11 @@ check:
     cargo fmt --all -- --check
     cargo clippy --all-targets --all-features
 
+# fix code
+fix:
+    cargo fmt --all
+    cargo clippy --allow-dirty --fix
+
 # build project
 build:
     cargo build --all-targets

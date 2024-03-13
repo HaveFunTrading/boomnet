@@ -4,7 +4,7 @@ use std::time::Duration;
 use bnet::idle::IdleStrategy;
 use bnet::stream::recorder::Record;
 use bnet::stream::tls::IntoTlsStream;
-use bnet::ws::{WebsocketFrame, IntoWebsocket};
+use bnet::ws::{IntoWebsocket, WebsocketFrame};
 
 fn main() -> anyhow::Result<()> {
     let mut ws = TcpStream::connect("stream.binance.com:9443")?
@@ -12,7 +12,10 @@ fn main() -> anyhow::Result<()> {
         .record()
         .into_websocket("wss://stream.binance.com:9443/ws");
 
-    ws.send_text(true, Some(r#"{"method":"SUBSCRIBE","params":["btcusdt@trade"],"id":1}"#.to_string().as_bytes()))?;
+    ws.send_text(
+        true,
+        Some(r#"{"method":"SUBSCRIBE","params":["btcusdt@trade"],"id":1}"#.to_string().as_bytes()),
+    )?;
 
     let idle = IdleStrategy::Sleep(Duration::from_millis(1));
 

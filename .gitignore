@@ -1,3 +1,2 @@
-/.idea
 /target
-/*.rec
+/Cargo.lock

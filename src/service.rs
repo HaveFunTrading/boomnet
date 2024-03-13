@@ -1,17 +1,17 @@
-use std::{io, mem};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
+use std::{io, mem};
 
 use log::error;
 
 use crate::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::idle::IdleStrategy;
-use crate::IONode;
 use crate::select::{Selector, SelectorToken};
 use crate::util::current_time_nanos;
+use crate::IONode;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 

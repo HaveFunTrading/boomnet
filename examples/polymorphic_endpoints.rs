@@ -1,19 +1,21 @@
+#![allow(unused)]
+
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use log::info;
 
-use net::endpoint::{Context, EndpointWithContext};
-use net::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
-use net::idle::IdleStrategy;
-use net::inet::{IntoNetworkInterface, ToSocketAddr};
-use net::select::mio::MioSelector;
-use net::service::IntoIOServiceWithContext;
-use net::stream::BindAndConnect;
-use net::stream::mio::{IntoMioStream, MioStream};
-use net::stream::tls::TlsStream;
-use net::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
+use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
+use boomnet::endpoint::Context;
+use boomnet::idle::IdleStrategy;
+use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
+use boomnet::select::mio::MioSelector;
+use boomnet::service::IntoIOServiceWithContext;
+use boomnet::stream::mio::{IntoMioStream, MioStream};
+use boomnet::stream::tls::TlsStream;
+use boomnet::stream::BindAndConnect;
+use boomnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
 
 struct FeedContext;
 
@@ -158,7 +160,6 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
 }
 
 fn main() -> anyhow::Result<()> {
-
     env_logger::init();
 
     let mut context = FeedContext;

@@ -40,9 +40,17 @@ dead_code = "warn"
 debug = true
 
 [[example]]
-name = "ws_client"
-required-features = ["tls", "ws"]
-
-[[example]]
 name = "io_service_with_context"
 required-features = ["mio", "tls", "ws"]
+
+[[example]]
+name = "polymorphic_endpoints"
+required-features = ["mio", "tls", "ws"]
+
+[[example]]
+name = "recorded_stream"
+required-features = ["tls"]
+
+[[example]]
+name = "ws_client"
+required-features = ["tls", "ws"]

@@ -17,6 +17,7 @@ pub trait BindAndConnect {
 }
 
 impl BindAndConnect for TcpStream {
+    #[allow(unused_variables)]
     fn bind_and_connect(addr: SocketAddr, net_iface: Option<SocketAddr>, cpu: Option<usize>) -> io::Result<TcpStream> {
         let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
         socket.set_nonblocking(true)?;

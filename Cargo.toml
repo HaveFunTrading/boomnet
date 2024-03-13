@@ -1,10 +1,10 @@
 [package]
-name = "boomnet"
+name = "bnet"
 version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["mio",  "tls", "ws"]
 disable-checks = []
 mio = ["dep:mio"]
 tls = ["rustls", "webpki-roots"]

@@ -1,10 +1,10 @@
 use std::net::TcpStream;
 use std::time::Duration;
 
-use net::idle::IdleStrategy;
-use net::stream::recorder::Record;
-use net::stream::tls::IntoTlsStream;
-use net::ws::{IntoWebsocket, WebsocketFrame};
+use bnet::idle::IdleStrategy;
+use bnet::stream::recorder::Record;
+use bnet::stream::tls::IntoTlsStream;
+use bnet::ws::{WebsocketFrame, IntoWebsocket};
 
 fn main() -> anyhow::Result<()> {
     let mut ws = TcpStream::connect("stream.binance.com:9443")?

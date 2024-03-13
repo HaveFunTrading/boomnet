@@ -2,18 +2,18 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
+use bnet::endpoint::ws::{TlsWebsocketEndpointWithContext, TlsWebsocket};
 use log::info;
 
-use net::endpoint::{Context, EndpointWithContext};
-use net::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
-use net::idle::IdleStrategy;
-use net::inet::{IntoNetworkInterface, ToSocketAddr};
-use net::select::mio::MioSelector;
-use net::service::IntoIOServiceWithContext;
-use net::stream::BindAndConnect;
-use net::stream::mio::{IntoMioStream, MioStream};
-use net::stream::tls::TlsStream;
-use net::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
+use bnet::endpoint::Context;
+use bnet::idle::IdleStrategy;
+use bnet::inet::{IntoNetworkInterface, ToSocketAddr};
+use bnet::select::mio::MioSelector;
+use bnet::service::IntoIOServiceWithContext;
+use bnet::stream::BindAndConnect;
+use bnet::stream::mio::{IntoMioStream, MioStream};
+use bnet::stream::tls::TlsStream;
+use bnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
 
 struct FeedContext;
 
@@ -53,7 +53,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
 }
 
 struct TradeEndpoint {
-    id: u32,
+    _id: u32,
     url: &'static str,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
@@ -65,7 +65,7 @@ impl TradeEndpoint {
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
-            id,
+            _id: id,
             url,
             net_iface,
             instrument,
@@ -103,7 +103,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 }
 
 struct TickerEndpoint {
-    id: u32,
+    _id: u32,
     url: &'static str,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
@@ -120,7 +120,7 @@ impl TickerEndpoint {
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
-            id,
+            _id: id,
             url,
             net_iface,
             instrument,

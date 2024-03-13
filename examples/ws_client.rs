@@ -1,8 +1,8 @@
 use std::net::TcpStream;
 use std::time::Duration;
 
-use net::idle::IdleStrategy;
-use net::ws::{IntoTlsWebsocket, WebsocketFrame};
+use bnet::idle::IdleStrategy;
+use bnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
 fn main() -> anyhow::Result<()> {
     let mut ws = TcpStream::connect("stream.binance.com:9443")?.into_tls_websocket("wss://stream.binance.com:9443/ws");

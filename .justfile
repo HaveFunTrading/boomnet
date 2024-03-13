@@ -16,7 +16,7 @@ check:
 # fix code
 fix:
     cargo fmt --all
-    cargo clippy --allow-dirty --fix
+    cargo clippy --all-targets --all-features --allow-dirty --fix
 
 # build project
 build:

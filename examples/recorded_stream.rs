@@ -12,10 +12,7 @@ fn main() -> anyhow::Result<()> {
         .record()
         .into_websocket("wss://stream.binance.com:9443/ws");
 
-    ws.send_text(
-        true,
-        Some(r#"{"method":"SUBSCRIBE","params":["btcusdt@trade"],"id":1}"#.to_string().as_bytes()),
-    )?;
+    ws.send_text(true, Some(r#"{"method":"SUBSCRIBE","params":["btcusdt@trade"],"id":1}"#.to_string().as_bytes()))?;
 
     let idle = IdleStrategy::Sleep(Duration::from_millis(1));
 

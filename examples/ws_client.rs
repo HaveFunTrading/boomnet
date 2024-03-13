@@ -7,10 +7,7 @@ use bnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 fn main() -> anyhow::Result<()> {
     let mut ws = TcpStream::connect("stream.binance.com:9443")?.into_tls_websocket("wss://stream.binance.com:9443/ws");
 
-    ws.send_text(
-        true,
-        Some(b"{\"method\":\"SUBSCRIBE\",\"params\":[\"btcusdt@trade\"],\"id\":1}"),
-    )?;
+    ws.send_text(true, Some(b"{\"method\":\"SUBSCRIBE\",\"params\":[\"btcusdt@trade\"],\"id\":1}"))?;
 
     'outer: loop {
         let idle = IdleStrategy::Sleep(Duration::from_millis(1));

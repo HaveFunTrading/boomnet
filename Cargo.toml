@@ -1,9 +1,10 @@
 [package]
 name = "boomnet"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 license = "MIT"
 description = "Framework for building low latency network applications"
+documentation = "https://docs.rs/boomnet/latest/"
 readme = "README.md"
 repository = "https://github.com/HaveFunTrading/boomnet"
 keywords = ["tcp", "non-blocking", "low-latency", "websocket", "mio"]

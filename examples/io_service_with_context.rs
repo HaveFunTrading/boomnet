@@ -10,12 +10,10 @@ use boomnet::endpoint::Context;
 use boomnet::idle::IdleStrategy;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::select::mio::MioSelector;
-use boomnet::service::{IntoIOService, IntoIOServiceWithContext};
+use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::BindAndConnect;
-use boomnet::stream::recorder::{Record, Recorded};
-use boomnet::stream::tls::{IntoTlsStream, TlsStream};
-use boomnet::ws::{IntoTlsWebsocket, IntoWebsocket, Websocket, WebsocketFrame};
+use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
 struct TradeEndpoint {
     id: u32,
@@ -66,7 +64,6 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 
     fn create_websocket(&self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-
         let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
             .into_mio_stream()
             .into_tls_websocket(self.url);
@@ -101,10 +98,8 @@ fn main() -> anyhow::Result<()> {
 
     let mut context = FeedContext::new();
 
-    let mut io_service = MioSelector::new()?.into_io_service(IdleStrategy::Sleep(Duration::from_millis(1)));
-
-    // let mut io_service =
-    //     MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
+    let mut io_service =
+        MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
 
     let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", Some("wlp4s0"), "btcusdt");
     let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "btcusdt");

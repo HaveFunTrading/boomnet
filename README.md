@@ -57,7 +57,7 @@ Though primarily utilised internally, selectors are crucial for the `IOService` 
 let mut io_service = MioSelector::new()?.into_io_service(IdleStrategy::Sleep(Duration::from_millis(1)));
 ```
 
-### Service Layer
+### Service
 The last layer manages lifecycle of endpoints and provides auxiliary services (e.g., asynchronous DNS resolution)
 through the `IOService`, which internally relies on `Selector`.
 

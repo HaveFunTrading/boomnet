@@ -163,7 +163,7 @@ struct FeedContext {
     static_data: StaticData,
 }
 
-// use the market trait
+// use the marker trait
 impl Context for FeedContext {}
 ```
 
@@ -191,7 +191,6 @@ We will also need to create `IOService` that is `Context` aware.
 
 ```rust
 let mut context = FeedContext::new(static_data);
-
 let mut io_service = MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
 ```
 

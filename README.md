@@ -8,32 +8,33 @@
 [Docs Badge]: https://docs.rs/boomnet/badge.svg
 [docs]: https://docs.rs/boomnet
 
-Framework designed for building low latency networking components. It's primary focus is
-on writing TCP stream oriented client applications that operate using different protocols.
+## Overview
+BoomNet is a high-performance framework designed to facilitate the development of low-latency network applications,
+particularly focusing on TCP stream-oriented client applications that utilise various protocols.
 
-## Installing
+## Installation
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
 boomnet = { version = "0.0.2", features = ["full"]}
 ```
 
-## Design Overview
+## Design Principles
 
-The framework is divided into several layers, where the next layer is built on top of the
-previous one.
+BoomNet is structured into multiple layers, with each subsequent layer building upon its predecessor,
+enhancing functionality and abstraction.
 
 ### Stream
-Abstractions over TCP connection
-* Must implement `Read` and `Write` traits
-* Are non blocking
-* TLS done with `rustls`
-* Have ability to record and replay from network byte stream
-* Can bind to specific network interface
-* Used to implement TCP oriented client protocols (e.g. websocket, http, FIX)
+The first layer offers abstractions over TCP connections, adhering to the following characteristics.
 
-Streams are fully generic and don't use dynamic dispatch and can be freely composed with
-each other.
+* Implements `Read` and `Write` traits for I/O operations.
+* Operates in a non-blocking manner.
+* Integrates TLS using `rustls`.
+* Supports recording and replaying network byte streams.
+* Allows binding to specific network interfaces.
+* Facilitates the implementation of TCP-oriented client protocols such as WebSocket, HTTP, and FIX.
+
+Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.
 
 ```rust
 let stream: Recorded<TlsStream<MioStream>> = TcpStream::bind_and_connect(addr, self.net_iface, None)?
@@ -42,46 +43,44 @@ let stream: Recorded<TlsStream<MioStream>> = TcpStream::bind_and_connect(addr, s
     .record();
 ```
 
-The `stream` can then have protocol applied on top of it.
+Different protocols can then be applied on top of a stream.
 ```rust
 let ws: Websocket<Recorded<TlsStream<MioStream>>> = stream.into_websocket(self.url);
 ```
 
 ### Selector
-Represents abstraction over OS specific mechanism (like `epoll`) that provides efficient way of checking
-for readiness events on the monitored socket(s). At the moment both `mio` and `direct` (no-op) selectors
-are supported. Users don't usually deal with selectors directly as these are used internally by the IO service.
+`Selector` provides abstraction over OS-specific mechanisms (like `epoll`) for efficiently monitoring socket readiness events.
+Though primarily utilised internally, selectors are crucial for the `IOService` functionality, currently offering both
+`mio` and `direct` (no-op) implementations.
 
 ```rust
 let mut io_service = MioSelector::new()?.into_io_service(IdleStrategy::Sleep(Duration::from_millis(1)));
 ```
 
-### Service
-The `IOService` uses `Selector` and manages `Endpoint` lifecycle. In addition, it provides auxiliary
-services such as asynchronous DNS resolution.
+### Service Layer
+The last layer manages lifecycle of endpoints and provides auxiliary services (e.g., asynchronous DNS resolution)
+through the `IOService`, which internally relies on `Selector`.
 
-`Endpoint` is the application level building block and is used to bind the connection and protocol to the business
-logic handler. The underlying connection lifecycle is managed by the `IOService`.
+`Endpoint` serves as application-level construct, binding the communication protocol with the application's
+business logic. `IOService` oversees the connection lifecycle within endpoints.
 
-## Protocols
-
-The framework will support a number of protocols out of the box, such as `websocket`, `http` and `fix`. Currently,
-only websocket client is supported.
+## Supported Protocols
+BoomNet aims to support a variety of protocols, including WebSocket, HTTP, and FIX, with WebSocket client
+functionality currently available.
 
 ### Websocket
+The WebSocket client protocol complies with the[RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) specification,
+offering the following features.
 
-Websocket client protocol implementing [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) specification.
+* Compatibility with any stream.
+* TCP batch-aware timestamps for frames read in the same batch.
+* Not blocking on partial frame.
+* Optimised for zero-copy read and write operations.
+* Optional masking of outbound frames.
+* Standalone usage or in conjunction with `Selector` and `IOService`.
 
-* Works with any stream
-* TCP batch aware timestamp (will provide same timestamp for each frame read in the same TCP batch)
-* Will not block on partial frame
-* Optimised for zero-copy read and write
-* Optional masking of outbound frames
-* Can be used standalone or together with `Selector` and `IOService`
-
-## Usage
-
-Below example demonstrates how to use websocket client in order to consume messages from the Binance cryptocurrency
+## Example Usage
+The following example illustrates how to use websocket client in order to consume messages from the Binance cryptocurrency
 exchange. First, we need to define and implement our `Endpoint`. The framework provides `TlsWebsocketEndpoint` trait
 that we can use.
 
@@ -134,9 +133,8 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 }
 ```
 
-All we need to do now is to register our endpoints with the `IOService` and keep polling the service in an event loop.
-It is the responsibility of the service to manage the endpoint underlying connection and recreate it in case of any
-disconnect.
+After defining the endpoint, it is registered with the `IOService` and polled within an event loop. The service handles
+`Endpoint` connection management and reconnection in case of disconnection.
 
 ```rust
 
@@ -189,10 +187,10 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 }
 ```
 
-We will also need to create `IOService` with `Context`.
+We will also need to create `IOService` that is `Context` aware.
 
 ```rust
-let mut context = FeedContext::new();
+let mut context = FeedContext::new(static_data);
 
 let mut io_service = MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
 ```
@@ -205,19 +203,18 @@ loop {
 ```
 
 ## Features
-
-The `full` feature will enable all features listed below. In situations where this is undesirable, individual
-features can be enabled on demand.
+BoomNet's feature set is modular, allowing for tailored functionality based on project needs. The `full` feature enables
+all available features, while individual components can be enabled as needed.
 
 * [mio](#mio)
 * [tls](#tls)
 * [ws](#ws)
 
 ### `mio`
-Adds dependency on `mio` crate and enables `MioSelector` and `MioStream`
+Adds dependency on `mio` crate and enables `MioSelector` and `MioStream`.
 
 ### `tls`
-Adds dependency on `rustls` crate and enables `TlsStream` and more flexible `TlsReadyStream`
+Adds dependency on `rustls` crate and enables `TlsStream` and more flexible `TlsReadyStream`.
 
 ### `ws`
 Adds support for `Websocket` protocol.

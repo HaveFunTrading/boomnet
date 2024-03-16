@@ -82,21 +82,52 @@ pub mod ws {
 
     use url::Url;
 
-    use crate::endpoint::{ConnectionInfo, EndpointWithContext};
+    use crate::endpoint::{ConnectionInfo, Endpoint, EndpointWithContext};
     use crate::stream::tls::TlsStream;
     use crate::ws::Websocket;
 
     pub type TlsWebsocket<S> = Websocket<TlsStream<S>>;
+
+    pub trait TlsWebsocketEndpoint {
+        type Stream: Read + Write;
+
+        fn url(&self) -> &str;
+
+        fn create_websocket(&self, addr: SocketAddr) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
+
+        fn poll(&self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()>;
+    }
+
+    impl<T> Endpoint for T
+    where
+        T: TlsWebsocketEndpoint,
+    {
+        type Target = Websocket<TlsStream<T::Stream>>;
+
+        #[inline]
+        fn connection_info(&self) -> io::Result<ConnectionInfo> {
+            Url::parse(self.url()).try_into()
+        }
+
+        #[inline]
+        fn create_target(&self, addr: SocketAddr) -> io::Result<Self::Target> {
+            self.create_websocket(addr)
+        }
+
+        #[inline]
+        fn poll(&self, target: &mut Self::Target) -> io::Result<()> {
+            self.poll(target)
+        }
+    }
 
     pub trait TlsWebsocketEndpointWithContext<C> {
         type Stream: Read + Write;
 
         fn url(&self) -> &str;
 
-        fn create_websocket(&self, addr: SocketAddr, context: &mut C)
-            -> io::Result<Websocket<TlsStream<Self::Stream>>>;
+        fn create_websocket(&self, addr: SocketAddr, ctx: &mut C) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
 
-        fn poll(&self, ws: &mut Websocket<TlsStream<Self::Stream>>, context: &mut C) -> io::Result<()>;
+        fn poll(&self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut C) -> io::Result<()>;
     }
 
     impl<T, C> EndpointWithContext<C> for T

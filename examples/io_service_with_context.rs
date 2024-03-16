@@ -101,9 +101,9 @@ fn main() -> anyhow::Result<()> {
     let mut io_service =
         MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
 
-    let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", Some("wlp4s0"), "btcusdt");
-    let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "btcusdt");
-    let endpoint_xrp = TradeEndpoint::new(2, "wss://stream3.binance.com:443/ws", None, "btcusdt");
+    let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
+    let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "ethusdt");
+    let endpoint_xrp = TradeEndpoint::new(2, "wss://stream3.binance.com:443/ws", None, "xrpusdt");
 
     io_service.register(endpoint_btc);
     io_service.register(endpoint_eth);

@@ -69,7 +69,7 @@ BoomNet aims to support a variety of protocols, including WebSocket, HTTP, and F
 functionality currently available.
 
 ### Websocket
-The WebSocket client protocol complies with the[RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) specification,
+The WebSocket client protocol complies with the [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) specification,
 offering the following features.
 
 * Compatibility with any stream.

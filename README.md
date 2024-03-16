@@ -1,4 +1,5 @@
-# BoomNet &emsp; [![Build Status]][actions] [![Latest Version]][crates.io] [![Docs Badge]][docs]
+# BoomNet 
+[![Build Status]][actions] [![Latest Version]][crates.io] [![Docs Badge]][docs]
 
 [Build Status]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fhavefuntrading%2Fboomnet%2Fbadge%3Fref%3Dmain&style=flat&label=build&logo=none
 [actions]: https://actions-badge.atrox.dev/havefuntrading/boomnet/goto?ref=main

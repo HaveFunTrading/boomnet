@@ -1,6 +1,7 @@
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 
+use crate::select::Selectable;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 pub mod file;
@@ -41,5 +42,19 @@ impl BindAndConnect for TcpStream {
             Err(err) if err.raw_os_error() == Some(EINPROGRESS) => Ok(socket.into()),
             Err(err) => Err(err),
         }
+    }
+}
+
+impl Selectable for TcpStream {
+    fn connected(&mut self) -> io::Result<bool> {
+        Ok(true)
+    }
+
+    fn make_writable(&mut self) {
+        // no-op
+    }
+
+    fn make_readable(&mut self) {
+        // no-op
     }
 }

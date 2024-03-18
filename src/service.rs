@@ -18,7 +18,7 @@ const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as 
 /// Handles the lifecycle of endpoints (see [`Endpoint`]), which are typically network connections.
 /// It uses [`SelectService`] pattern for managing asynchronous I/O operations.
 pub struct IOService<S: Selector, E, C> {
-    select_service: S,
+    selector: S,
     pending_endpoints: VecDeque<E>,
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
     idle_strategy: IdleStrategy,
@@ -45,9 +45,9 @@ pub trait IntoIOServiceWithContext<E, C: Context> {
 }
 
 impl<S: Selector, E, C> IOService<S, E, C> {
-    pub fn new(select_service: S, idle_strategy: IdleStrategy) -> IOService<S, E, C> {
+    pub fn new(selector: S, idle_strategy: IdleStrategy) -> IOService<S, E, C> {
         IOService {
-            select_service,
+            selector,
             pending_endpoints: VecDeque::new(),
             io_nodes: HashMap::new(),
             idle_strategy,
@@ -86,20 +86,20 @@ where
                     let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
                     let stream = endpoint.create_target(addr)?;
                     let mut io_node = IONode::new(stream, endpoint);
-                    let token = self.select_service.register(&mut io_node)?;
+                    let token = self.selector.register(&mut io_node)?;
                     self.io_nodes.insert(token, io_node);
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
             }
         }
 
-        self.select_service.poll(&mut self.io_nodes)?;
+        self.selector.poll(&mut self.io_nodes)?;
 
         self.io_nodes.retain(|_token, io_node| {
             let (stream, endpoint) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream) {
                 error!("error when polling endpoint: {}", err);
-                self.select_service.unregister(io_node).unwrap();
+                self.selector.unregister(io_node).unwrap();
                 // we need to transfer the ownership
                 // the original io_node will be dropped anyway
                 let endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
@@ -138,20 +138,20 @@ where
                     let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
                     let stream = endpoint.create_target(addr, context)?;
                     let mut io_node = IONode::new(stream, endpoint);
-                    let token = self.select_service.register(&mut io_node)?;
+                    let token = self.selector.register(&mut io_node)?;
                     self.io_nodes.insert(token, io_node);
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
             }
         }
 
-        self.select_service.poll(&mut self.io_nodes)?;
+        self.selector.poll(&mut self.io_nodes)?;
 
         self.io_nodes.retain(|_token, io_node| {
             let (stream, endpoint) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream, context) {
                 error!("error when polling endpoint: {}", err);
-                self.select_service.unregister(io_node).unwrap();
+                self.selector.unregister(io_node).unwrap();
                 // we need to transfer the ownership
                 // the original io_node will be dropped anyway
                 let endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };

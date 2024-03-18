@@ -3,6 +3,7 @@ use std::io;
 
 use crate::IONode;
 
+pub mod direct;
 #[cfg(feature = "mio")]
 pub mod mio;
 

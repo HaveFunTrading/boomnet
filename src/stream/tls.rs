@@ -11,7 +11,7 @@ use rustls::{ClientConnection, RootCertStore};
 use crate::select::Selectable;
 #[cfg(feature = "mio")]
 use crate::stream::mio::MioStream;
-use crate::stream::recorder::{IntoRecordedStream, RecordedStream, Recorder};
+use crate::stream::recorder::RecordedStream;
 use crate::util::NoBlock;
 
 pub struct TlsStream<S> {
@@ -203,23 +203,5 @@ where
         Self: Sized,
     {
         TlsStream::wrap(self, server_name)
-    }
-}
-
-impl<T> IntoRecordedStream for TlsStream<T> {
-    fn into_recorded_stream(self, recording_name: impl AsRef<str>) -> RecordedStream<Self>
-    where
-        Self: Sized,
-    {
-        RecordedStream::new(self, Recorder::new(recording_name).unwrap())
-    }
-}
-
-impl<T> IntoRecordedStream for TlsReadyStream<T> {
-    fn into_recorded_stream(self, recording_name: impl AsRef<str>) -> RecordedStream<Self>
-    where
-        Self: Sized,
-    {
-        RecordedStream::new(self, Recorder::new(recording_name).unwrap())
     }
 }

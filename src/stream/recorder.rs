@@ -73,3 +73,15 @@ pub trait IntoRecordedStream {
         self.into_recorded_stream(DEFAULT_RECORDING_NAME)
     }
 }
+
+impl<T> IntoRecordedStream for T
+where
+    T: Read + Write,
+{
+    fn into_recorded_stream(self, recording_name: impl AsRef<str>) -> RecordedStream<Self>
+    where
+        Self: Sized,
+    {
+        RecordedStream::new(self, Recorder::new(recording_name).unwrap())
+    }
+}

@@ -222,7 +222,6 @@ pub trait IntoTlsWebsocket {
 impl<T> IntoTlsWebsocket for T
 where
     T: Read + Write,
-    T: IntoTlsStream,
 {
     fn into_tls_websocket(self, url: &str) -> Websocket<TlsStream<Self>>
     where

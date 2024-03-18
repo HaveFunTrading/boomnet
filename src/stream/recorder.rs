@@ -1,9 +1,8 @@
 use std::fs::File;
+use std::io;
 use std::io::{BufWriter, Read, Write};
-use std::{env, io};
 
-const DEFAULT_NET_RECORDING_FILE_INBOUND: &str = "stream_inbound.rec";
-const DEFAULT_NET_RECORDING_FILE_OUTBOUND: &str = "stream_outbound.rec";
+const DEFAULT_RECORDING_NAME: &str = "plain";
 
 pub struct Recorder {
     inbound: Box<dyn Write>,
@@ -11,9 +10,9 @@ pub struct Recorder {
 }
 
 impl Recorder {
-    pub fn new() -> io::Result<Self> {
-        let file_in = env::var(DEFAULT_NET_RECORDING_FILE_INBOUND).unwrap_or("stream_inbound.rec".to_owned());
-        let file_out = env::var(DEFAULT_NET_RECORDING_FILE_OUTBOUND).unwrap_or("stream_outbound.rec".to_owned());
+    pub fn new(recording_name: impl AsRef<str>) -> io::Result<Self> {
+        let file_in = format!("{}_inbound.rec", recording_name.as_ref());
+        let file_out = format!("{}_outbound.rec", recording_name.as_ref());
         let inbound = Box::new(BufWriter::new(File::create(file_in)?));
         let outbound = Box::new(BufWriter::new(File::create(file_out)?));
         Ok(Self { inbound, outbound })
@@ -63,19 +62,14 @@ impl<S: Read + Write> Write for RecordedStream<S> {
 }
 
 pub trait IntoRecordedStream {
-    fn into_recorded_stream(self) -> RecordedStream<Self>
+    fn into_recorded_stream(self, recording_name: impl AsRef<str>) -> RecordedStream<Self>
     where
         Self: Sized;
-}
 
-impl<T> IntoRecordedStream for T
-where
-    T: Read + Write,
-{
-    fn into_recorded_stream(self) -> RecordedStream<Self>
+    fn into_default_recorded_stream(self) -> RecordedStream<Self>
     where
         Self: Sized,
     {
-        RecordedStream::new(self, Recorder::new().unwrap())
+        self.into_recorded_stream(DEFAULT_RECORDING_NAME)
     }
 }

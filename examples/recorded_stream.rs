@@ -9,7 +9,7 @@ use boomnet::ws::{IntoWebsocket, WebsocketFrame};
 fn main() -> anyhow::Result<()> {
     let mut ws = TcpStream::connect("stream.binance.com:9443")?
         .into_tls_stream("stream.binance.com")
-        .into_recorded_stream()
+        .into_recorded_stream("plain")
         .into_websocket("wss://stream.binance.com:9443/ws");
 
     ws.send_text(true, Some(r#"{"method":"SUBSCRIBE","params":["btcusdt@trade"],"id":1}"#.to_string().as_bytes()))?;

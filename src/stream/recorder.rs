@@ -28,13 +28,13 @@ impl Recorder {
     }
 }
 
-pub struct Recorded<S> {
+pub struct RecordedStream<S> {
     inner: S,
     recorder: Recorder,
 }
 
-impl<S> Recorded<S> {
-    pub fn new(stream: S, recorder: Recorder) -> Recorded<S> {
+impl<S> RecordedStream<S> {
+    pub fn new(stream: S, recorder: Recorder) -> RecordedStream<S> {
         Self {
             inner: stream,
             recorder,
@@ -42,7 +42,7 @@ impl<S> Recorded<S> {
     }
 }
 
-impl<S: Read + Write> Read for Recorded<S> {
+impl<S: Read + Write> Read for RecordedStream<S> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let read = self.inner.read(buf)?;
         self.recorder.record_inbound(&buf[..read])?;
@@ -50,7 +50,7 @@ impl<S: Read + Write> Read for Recorded<S> {
     }
 }
 
-impl<S: Read + Write> Write for Recorded<S> {
+impl<S: Read + Write> Write for RecordedStream<S> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let wrote = self.inner.write(buf)?;
         self.recorder.record_outbound(&buf[..wrote])?;
@@ -62,20 +62,20 @@ impl<S: Read + Write> Write for Recorded<S> {
     }
 }
 
-pub trait Record {
-    fn record(self) -> Recorded<Self>
+pub trait IntoRecordedStream {
+    fn into_recorded_stream(self) -> RecordedStream<Self>
     where
         Self: Sized;
 }
 
-impl<T> Record for T
+impl<T> IntoRecordedStream for T
 where
     T: Read + Write,
 {
-    fn record(self) -> Recorded<Self>
+    fn into_recorded_stream(self) -> RecordedStream<Self>
     where
         Self: Sized,
     {
-        Recorded::new(self, Recorder::new().unwrap())
+        RecordedStream::new(self, Recorder::new().unwrap())
     }
 }

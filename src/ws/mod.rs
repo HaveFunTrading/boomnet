@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::buffer;
 use crate::select::Selectable;
-use crate::stream::tls::{IntoTlsStream, TlsReadyStream, TlsStream};
+use crate::stream::tls::{IntoTlsStream, NotTlsStream, TlsReadyStream, TlsStream};
 use crate::ws::decoder::Decoder;
 use crate::ws::handshake::{HandshakeState, Handshaker};
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
@@ -221,7 +221,7 @@ pub trait IntoTlsWebsocket {
 
 impl<T> IntoTlsWebsocket for T
 where
-    T: Read + Write,
+    T: Read + Write + NotTlsStream,
 {
     fn into_tls_websocket(self, url: &str) -> Websocket<TlsStream<Self>>
     where

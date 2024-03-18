@@ -1,5 +1,6 @@
 use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::{io, mem};
 
 #[cfg(feature = "mio")]
@@ -9,7 +10,7 @@ use url::Url;
 
 use crate::buffer;
 use crate::select::Selectable;
-use crate::stream::tls::{IntoTlsStream, TlsStream};
+use crate::stream::tls::{IntoTlsStream, TlsReadyStream, TlsStream};
 use crate::ws::decoder::Decoder;
 use crate::ws::handshake::{HandshakeState, Handshaker};
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
@@ -203,7 +204,6 @@ pub trait IntoWebsocket {
 impl<T> IntoWebsocket for T
 where
     T: Read + Write,
-    T: IntoTlsStream,
 {
     fn into_websocket(self, url: &str) -> Websocket<Self>
     where
@@ -232,6 +232,33 @@ where
         let server_name = url_tmp.host_str().unwrap();
         let tls_stream = self.into_tls_stream(server_name);
         Websocket::new(tls_stream, url).unwrap()
+    }
+}
+
+pub trait TryIntoTlsReadyWebsocket {
+    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
+    where
+        Self: Sized;
+}
+
+impl<T> TryIntoTlsReadyWebsocket for T
+where
+    T: AsRef<str>,
+{
+    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
+    where
+        Self: Sized,
+    {
+        let url = Url::parse(self.as_ref()).map_err(io::Error::other)?;
+        let stream = TcpStream::connect(url.socket_addrs(|| None)?[0])?;
+
+        let tls_ready_stream = match url.scheme() {
+            "ws" => Ok(TlsReadyStream::Plain(stream)),
+            "wss" => Ok(TlsReadyStream::Tls(TlsStream::wrap(stream, url.host_str().unwrap()))),
+            scheme => Err(io::Error::other(format!("unrecognised url scheme: {}", scheme))),
+        }?;
+
+        Websocket::new(tls_ready_stream, self.as_ref())
     }
 }
 

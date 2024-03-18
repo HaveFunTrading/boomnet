@@ -7,6 +7,9 @@ use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 fn main() -> anyhow::Result<()> {
     let mut ws = TcpStream::connect("stream.binance.com:9443")?.into_tls_websocket("wss://stream.binance.com:9443/ws");
 
+    // websocket can also be quickly constructed from url string (use only for testing)
+    // let mut ws = "wss://stream.binance.com:443/ws".try_into_tls_ready_websocket()?;
+
     ws.send_text(true, Some(b"{\"method\":\"SUBSCRIBE\",\"params\":[\"btcusdt@trade\"],\"id\":1}"))?;
 
     'outer: loop {

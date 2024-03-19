@@ -16,7 +16,7 @@ particularly focusing on TCP stream-oriented client applications that utilise va
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
-boomnet = { version = "0.0.2", features = ["full"]}
+boomnet = { version = "0.0.5", features = ["full"]}
 ```
 
 ## Design Principles

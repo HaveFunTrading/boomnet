@@ -64,7 +64,7 @@ through the `IOService`, which internally relies on `Selector`.
 `Endpoint` serves as application-level construct, binding the communication protocol with the application's
 business logic. `IOService` oversees the connection lifecycle within endpoints.
 
-## Supported Protocols
+## Protocols
 BoomNet aims to support a variety of protocols, including WebSocket, HTTP, and FIX, with WebSocket client
 functionality currently available.
 

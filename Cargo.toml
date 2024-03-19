@@ -57,6 +57,10 @@ name = "io_service_without_context"
 required-features = ["mio", "tls", "ws"]
 
 [[example]]
+name = "io_service_with_direct_selector"
+required-features = ["tls", "ws"]
+
+[[example]]
 name = "polymorphic_endpoints"
 required-features = ["mio", "tls", "ws"]
 

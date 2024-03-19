@@ -37,15 +37,15 @@ The first layer offers abstractions over TCP connections, adhering to the follow
 Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.
 
 ```rust
-let stream: Recorded<TlsStream<MioStream>> = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+let stream: RecordedStream<TlsStream<MioStream>> = TcpStream::bind_and_connect(addr, self.net_iface, None)?
     .into_mio_stream()
     .into_tls_stream(self.url)
-    .record();
+    .into_recorded_stream("plain");
 ```
 
 Different protocols can then be applied on top of a stream.
 ```rust
-let ws: Websocket<Recorded<TlsStream<MioStream>>> = stream.into_websocket(self.url);
+let ws: Websocket<RecordedStream<TlsStream<MioStream>>> = stream.into_websocket(self.url);
 ```
 
 ### Selector

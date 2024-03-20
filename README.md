@@ -10,7 +10,7 @@
 
 ## Overview
 BoomNet is a high-performance framework designed to facilitate the development of low-latency network applications,
-particularly focusing on TCP stream-oriented client applications that utilise various protocols.
+particularly focusing on TCP stream-oriented clients that utilise various protocols.
 
 ## Installation
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
@@ -25,27 +25,26 @@ BoomNet is structured into multiple layers, with each subsequent layer building 
 enhancing functionality and abstraction.
 
 ### Stream
-The first layer offers abstractions over TCP connections, adhering to the following characteristics.
+The first layer offers defines `stream` as abstractions over TCP connections, adhering to the following characteristics.
 
-* Implements `Read` and `Write` traits for I/O operations.
+* Must implement `Read` and `Write` traits for I/O operations.
 * Operates in a non-blocking manner.
 * Integrates TLS using `rustls`.
 * Supports recording and replaying network byte streams.
 * Allows binding to specific network interfaces.
-* Facilitates the implementation of TCP-oriented client protocols such as WebSocket, HTTP, and FIX.
+* Facilitates the implementation of TCP-oriented client protocols such as websocket, HTTP, and FIX.
 
 Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.
 
 ```rust
-let stream: RecordedStream<TlsStream<MioStream>> = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-    .into_mio_stream()
+let stream: RecordedStream<TlsStream<TcpStream>> = TcpStream::bind_and_connect(addr, self.net_iface, None)?
     .into_tls_stream(self.url)
     .into_recorded_stream("plain");
 ```
 
 Different protocols can then be applied on top of a stream.
 ```rust
-let ws: Websocket<RecordedStream<TlsStream<MioStream>>> = stream.into_websocket(self.url);
+let ws: Websocket<RecordedStream<TlsStream<TcpStream>>> = stream.into_websocket(self.url);
 ```
 
 ### Selector
@@ -69,7 +68,7 @@ BoomNet aims to support a variety of protocols, including WebSocket, HTTP, and F
 functionality currently available.
 
 ### Websocket
-The WebSocket client protocol complies with the [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) specification,
+The websocket client protocol complies with the [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) specification,
 offering the following features.
 
 * Compatibility with any stream.
@@ -105,7 +104,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
         self.url
     }
 
-    fn create_websocket(&self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         
         // create secure websocket
         let mut ws = TcpStream::bind_and_connect(addr, None, None)?

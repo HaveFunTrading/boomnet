@@ -76,20 +76,29 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 
     #[inline]
-    pub fn consume_next(&self, len: usize) -> &[u8] {
-        let new_head = self.head + len;
-        #[cfg(feature = "disable-checks")]
-        let view = unsafe { &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len) };
+    pub fn consume_next(&mut self, len: usize) -> &[u8] {
         #[cfg(not(feature = "disable-checks"))]
-        let view = &self.inner[self.head..self.head + len];
-
-        // update head to the new value
-        let head_ptr = (&self.head) as *const _ as *mut _;
-        unsafe {
-            ptr::replace(head_ptr, new_head);
+        #[cold]
+        fn bounds_violation(head: usize, tail: usize) -> ! {
+            panic!("bounds violation: head[{}] > tail[{}]", head, tail)
         }
 
-        view
+        let new_head = self.head + len;
+
+        #[cfg(feature = "disable-checks")]
+        let consumed_view = unsafe { &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len) };
+        #[cfg(not(feature = "disable-checks"))]
+        let consumed_view = &self.inner[self.head..new_head];
+
+        // update head to the new value
+        self.head = new_head;
+
+        #[cfg(not(feature = "disable-checks"))]
+        if self.head > self.tail {
+            bounds_violation(self.head, self.tail);
+        }
+
+        consumed_view
     }
 
     #[inline]
@@ -100,22 +109,6 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     #[inline]
     pub fn view_last(&self, len: usize) -> &[u8] {
         &self.inner[self.tail - len..self.tail]
-    }
-
-    #[inline]
-    pub fn consume(&mut self, len: usize) {
-        #[cfg(not(feature = "disable-checks"))]
-        #[cold]
-        fn bounds_violation(head: usize, tail: usize) -> ! {
-            panic!("bounds violation:  head[{}] > tail[{}]", head, tail)
-        }
-
-        self.head += len;
-
-        #[cfg(not(feature = "disable-checks"))]
-        if self.head > self.tail {
-            bounds_violation(self.head, self.tail);
-        }
     }
 }
 
@@ -139,11 +132,11 @@ mod tests {
         assert_eq!(12, buf.available());
         assert_eq!(b"hello world!", buf.view());
 
-        buf.consume(6);
+        let _ = buf.consume_next(6);
         assert_eq!(6, buf.available());
         assert_eq!(b"world!", buf.view());
 
-        buf.consume(6);
+        let _ = buf.consume_next(6);
         assert_eq!(0, buf.available());
         assert_eq!(b"", buf.view());
 
@@ -180,7 +173,7 @@ mod tests {
         buf.read_from(&mut stream).expect("unable to read from the stream");
         assert_eq!(b"hello ", buf.view());
 
-        buf.consume(6);
+        let _ = buf.consume_next(6);
         assert_eq!(0, buf.available());
         assert_eq!(b"", buf.view());
 
@@ -202,7 +195,7 @@ mod tests {
         buf.read_from(&mut stream).expect("unable to read from the stream");
         assert_eq!(b"hello ", buf.view());
 
-        buf.consume(2);
+        let _ = buf.consume_next(2);
         assert_eq!(4, buf.available());
         assert_eq!(b"llo ", buf.view());
 
@@ -215,16 +208,17 @@ mod tests {
         assert_eq!(DEFAULT_INITIAL_CAPACITY, buf.inner.len());
     }
 
+    #[cfg(not(feature = "disable-checks"))]
     #[test]
-    #[should_panic(expected = "bounds violation:  head[32] > tail[6]")]
-    fn should_panic_if_bounds_violated_on_consume() {
+    #[should_panic(expected = "bounds violation: head[32] > tail[6]")]
+    fn should_panic_if_bounds_violated() {
         let mut buf = ReadBuffer::<6>::new();
         let mut stream = Cursor::new(b"hello world!");
 
         buf.read_from(&mut stream).expect("unable to read from the stream");
         assert_eq!(b"hello ", buf.view());
 
-        buf.consume(32); // will panic
+        let _ = buf.consume_next(32); // will panic
     }
 
     #[test]

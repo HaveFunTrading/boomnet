@@ -132,11 +132,11 @@ mod tests {
         assert_eq!(12, buf.available());
         assert_eq!(b"hello world!", buf.view());
 
-        let _ = buf.consume_next(6);
+        assert_eq!(b"hello ", buf.consume_next(6));
         assert_eq!(6, buf.available());
         assert_eq!(b"world!", buf.view());
 
-        let _ = buf.consume_next(6);
+        assert_eq!(b"world!", buf.consume_next(6));
         assert_eq!(0, buf.available());
         assert_eq!(b"", buf.view());
 
@@ -173,7 +173,7 @@ mod tests {
         buf.read_from(&mut stream).expect("unable to read from the stream");
         assert_eq!(b"hello ", buf.view());
 
-        let _ = buf.consume_next(6);
+        assert_eq!(b"hello ", buf.consume_next(6));
         assert_eq!(0, buf.available());
         assert_eq!(b"", buf.view());
 
@@ -195,7 +195,7 @@ mod tests {
         buf.read_from(&mut stream).expect("unable to read from the stream");
         assert_eq!(b"hello ", buf.view());
 
-        let _ = buf.consume_next(2);
+        assert_eq!(b"he", buf.consume_next(2));
         assert_eq!(4, buf.available());
         assert_eq!(b"llo ", buf.view());
 

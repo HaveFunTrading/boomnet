@@ -5,7 +5,7 @@ pub mod service;
 pub mod stream;
 mod util;
 
-mod buffer;
+pub mod buffer;
 pub mod inet;
 #[cfg(feature = "ws")]
 pub mod ws;

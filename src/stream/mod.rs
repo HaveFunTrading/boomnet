@@ -11,7 +11,10 @@ pub mod recorder;
 #[cfg(feature = "tls")]
 pub mod tls;
 
+#[cfg(target_os = "linux")]
 const EINPROGRESS: i32 = 115;
+#[cfg(target_os = "macos")]
+const EINPROGRESS: i32 = 36;
 
 pub trait BindAndConnect {
     fn bind_and_connect(addr: SocketAddr, net_iface: Option<SocketAddr>, cpu: Option<usize>) -> io::Result<TcpStream>;

@@ -11,7 +11,7 @@ use rustls::{ClientConnection, RootCertStore};
 use crate::select::Selectable;
 #[cfg(feature = "mio")]
 use crate::stream::mio::MioStream;
-use crate::stream::recorder::RecordedStream;
+use crate::stream::record::RecordedStream;
 use crate::util::NoBlock;
 
 pub struct TlsStream<S> {

@@ -7,7 +7,8 @@ use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 pub mod file;
 #[cfg(feature = "mio")]
 pub mod mio;
-pub mod recorder;
+pub mod record;
+pub mod replay;
 #[cfg(feature = "tls")]
 pub mod tls;
 

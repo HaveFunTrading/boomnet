@@ -2,17 +2,16 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use ansi_term::Color::{Green, Purple, Red, Yellow};
 use log::info;
 
-use boomnet::endpoint::Context;
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
+use boomnet::endpoint::Context;
 use boomnet::idle::IdleStrategy;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
-use boomnet::stream::BindAndConnect;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
+use boomnet::stream::BindAndConnect;
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
 /*
@@ -72,7 +71,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
         self.url
     }
 
-    fn create_websocket(&self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
         let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
             .into_mio_stream()
             .into_tls_websocket(self.url);

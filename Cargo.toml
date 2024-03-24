@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.10"
+version = "0.0.11"
 edition = "2021"
 license = "MIT"
 description = "Framework for building low latency network applications."
@@ -54,6 +54,10 @@ required-features = ["mio", "tls", "ws"]
 
 [[example]]
 name = "io_service_without_context"
+required-features = ["mio", "tls", "ws"]
+
+[[example]]
+name = "io_service_with_auto_disconnect"
 required-features = ["mio", "tls", "ws"]
 
 [[example]]

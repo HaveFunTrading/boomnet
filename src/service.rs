@@ -24,6 +24,7 @@ pub struct IOService<S: Selector, E, C> {
     idle_strategy: IdleStrategy,
     next_endpoint_create_time_ns: u64,
     context: PhantomData<C>,
+    auto_disconnect: Option<Duration>,
 }
 
 /// Defines how an instance that implements [`SelectService`] can be transformed
@@ -45,14 +46,29 @@ pub trait IntoIOServiceWithContext<E, C: Context> {
 }
 
 impl<S: Selector, E, C> IOService<S, E, C> {
+    /// Creates new instance of [`IOService`].
     pub fn new(selector: S, idle_strategy: IdleStrategy) -> IOService<S, E, C> {
-        IOService {
+        Self {
             selector,
             pending_endpoints: VecDeque::new(),
             io_nodes: HashMap::new(),
             idle_strategy,
             next_endpoint_create_time_ns: 0,
             context: PhantomData,
+            auto_disconnect: None,
+        }
+    }
+
+    /// Specify TTL for each [`Endpoint`] connection.
+    pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C> {
+        Self {
+            selector: self.selector,
+            pending_endpoints: self.pending_endpoints,
+            io_nodes: self.io_nodes,
+            idle_strategy: self.idle_strategy,
+            next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
+            context: self.context,
+            auto_disconnect: Some(auto_disconnect),
         }
     }
 
@@ -85,7 +101,7 @@ where
                 if let Some(endpoint) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
                     let stream = endpoint.create_target(addr)?;
-                    let mut io_node = IONode::new(stream, endpoint);
+                    let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
                     let token = self.selector.register(&mut io_node)?;
                     self.io_nodes.insert(token, io_node);
                 }
@@ -93,8 +109,32 @@ where
             }
         }
 
+        // check for readiness events
         self.selector.poll(&mut self.io_nodes)?;
 
+        // check for auto disconnect if enabled
+        if self.auto_disconnect.is_some() {
+            let current_time_ns = current_time_nanos();
+            self.io_nodes.retain(|_token, io_node| {
+                let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
+                if force_disconnect {
+                    error!("error when polling endpoint: auto disconnected after {:?}", self.auto_disconnect.unwrap());
+                    self.selector.unregister(io_node).unwrap();
+                    // we need to transfer the ownership
+                    // the original io_node will be dropped anyway
+                    let mut endpoint =
+                        unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                    if endpoint.can_recreate() {
+                        self.pending_endpoints.push_back(endpoint);
+                    } else {
+                        panic!("unrecoverable error when polling endpoint");
+                    }
+                }
+                !force_disconnect
+            });
+        }
+
+        // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
             let (stream, endpoint) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream) {
@@ -102,7 +142,7 @@ where
                 self.selector.unregister(io_node).unwrap();
                 // we need to transfer the ownership
                 // the original io_node will be dropped anyway
-                let endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                let mut endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
                 if endpoint.can_recreate() {
                     self.pending_endpoints.push_back(endpoint);
                 } else {
@@ -137,7 +177,7 @@ where
                 if let Some(endpoint) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
                     let stream = endpoint.create_target(addr, context)?;
-                    let mut io_node = IONode::new(stream, endpoint);
+                    let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
                     let token = self.selector.register(&mut io_node)?;
                     self.io_nodes.insert(token, io_node);
                 }
@@ -145,8 +185,32 @@ where
             }
         }
 
+        // check for readiness events
         self.selector.poll(&mut self.io_nodes)?;
 
+        // check for auto disconnect if enabled
+        if self.auto_disconnect.is_some() {
+            let current_time_ns = current_time_nanos();
+            self.io_nodes.retain(|_token, io_node| {
+                let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
+                if force_disconnect {
+                    error!("error when polling endpoint: auto disconnected after {:?}", self.auto_disconnect.unwrap());
+                    self.selector.unregister(io_node).unwrap();
+                    // we need to transfer the ownership
+                    // the original io_node will be dropped anyway
+                    let mut endpoint =
+                        unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                    if endpoint.can_recreate() {
+                        self.pending_endpoints.push_back(endpoint);
+                    } else {
+                        panic!("unrecoverable error when polling endpoint");
+                    }
+                }
+                !force_disconnect
+            });
+        }
+
+        // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
             let (stream, endpoint) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream, context) {
@@ -154,7 +218,7 @@ where
                 self.selector.unregister(io_node).unwrap();
                 // we need to transfer the ownership
                 // the original io_node will be dropped anyway
-                let endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                let mut endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
                 if endpoint.can_recreate() {
                     self.pending_endpoints.push_back(endpoint);
                 } else {

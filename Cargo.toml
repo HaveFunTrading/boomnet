@@ -71,3 +71,7 @@ required-features = ["tls"]
 [[example]]
 name = "ws_client"
 required-features = ["tls", "ws"]
+
+[[example]]
+name = "endpoint_with_timer"
+required-features = ["mio", "tls", "ws"]

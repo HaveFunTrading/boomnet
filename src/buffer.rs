@@ -1,3 +1,8 @@
+//! Fixed length buffer for reading data from the network.
+//!
+//! The buffer should be used when implementing protocols on top of streams. It offers
+//! a number of methods to retrieve the bytes with zero-copy semantics.
+
 use std::io::Read;
 use std::{io, ptr};
 

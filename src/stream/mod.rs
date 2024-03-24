@@ -1,3 +1,5 @@
+//! Various stream implementations on top of which protocol can be applied.
+
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 

@@ -1,7 +1,10 @@
+//! Entry point for the application logic..
+
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 
+use crate::service::IOService;
 use url::{ParseError, Url};
 
 pub struct ConnectionInfo {
@@ -42,33 +45,51 @@ impl TryFrom<Result<Url, ParseError>> for ConnectionInfo {
     }
 }
 
+/// Entry point for the application logic. Endpoints are registered and Managed by [IOService].
 pub trait Endpoint {
+    /// Defines protocol and stream this endpoint operates on.
     type Target;
 
+    /// Used by the [IOService] to obtain connection info from the endpoint.
     fn connection_info(&self) -> io::Result<ConnectionInfo>;
 
+    /// Used by the [IOService] to create connection upon disconnect.
     fn create_target(&self, addr: SocketAddr) -> io::Result<Self::Target>;
 
+    /// Called by the [IOService] on each duty cycle.
     fn poll(&mut self, target: &mut Self::Target) -> io::Result<()>;
 
+    /// Upon disconnection [IOService] will query the endpoint if the connection can be
+    /// recreated. If not it will cause panic.
     fn can_recreate(&mut self) -> bool {
         true
     }
 }
 
+/// Marker trait to be applied on user defined `struct` that is registered with [IOService]
+/// as context.
 pub trait Context {
     // marker trait
 }
 
+/// Entry point for the application logic that exposes user provided [Context].
+/// Endpoints are registered and Managed by [IOService].
 pub trait EndpointWithContext<C> {
+    /// Defines protocol and stream this endpoint operates on.
     type Target;
 
+    /// Used by the [IOService] to obtain connection info from the endpoint.
     fn connection_info(&self) -> io::Result<ConnectionInfo>;
 
+    /// Used by the [IOService] to create connection upon disconnect passing user provided
+    /// [Context].
     fn create_target(&self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target>;
 
+    /// Called by the [IOService] on each duty cycle passing user provided [Context].
     fn poll(&mut self, target: &mut Self::Target, context: &mut C) -> io::Result<()>;
 
+    /// Upon disconnection [IOService] will query the endpoint if the connection can be
+    /// recreated. If not, it will cause panic.
     fn can_recreate(&mut self) -> bool {
         true
     }

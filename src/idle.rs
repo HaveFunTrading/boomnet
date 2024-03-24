@@ -1,3 +1,5 @@
+//! Collection of idle strategies.
+
 use std::hint;
 use std::time::Duration;
 

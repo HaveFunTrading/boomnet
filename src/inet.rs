@@ -1,3 +1,5 @@
+//!  Utilities related to working with network interfaces.
+
 use std::net::SocketAddr;
 
 use pnet::datalink;

@@ -1,3 +1,5 @@
+//! Service to manage multiple endpoint  lifecycle.
+
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
@@ -36,7 +38,7 @@ pub trait IntoIOService<E> {
         Self: Sized;
 }
 
-/// Defines how an instance that implements [`SelectService`] can be transformed
+/// Defines how an instance that implements [`Selector`] can be transformed
 /// into an [`IOService`] with [`Context`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOServiceWithContext<E, C: Context> {
     fn into_io_service_with_context(self, idle_strategy: IdleStrategy, context: &mut C) -> IOService<Self, E, C>
@@ -90,7 +92,7 @@ where
     E: Endpoint<Target = S::Target>,
 {
     /// This method polls all registered endpoints for readiness and performs I/O operations based
-    /// on the ['Selector'] polling results. It then iterates through all endpoints, either
+    /// on the ['Selector'] poll results. It then iterates through all endpoints, either
     /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
     pub fn poll(&mut self) -> io::Result<()> {
@@ -166,7 +168,7 @@ where
     E: EndpointWithContext<C, Target = S::Target>,
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
-    /// on the ['SelectService'] polling results. It then iterates through all endpoints, either
+    /// on the [`SelectService`] poll results. It then iterates through all endpoints, either
     /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
     pub fn poll(&mut self, context: &mut C) -> io::Result<()> {

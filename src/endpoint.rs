@@ -49,7 +49,7 @@ pub trait Endpoint {
 
     fn create_target(&self, addr: SocketAddr) -> io::Result<Self::Target>;
 
-    fn poll(&self, target: &mut Self::Target) -> io::Result<()>;
+    fn poll(&mut self, target: &mut Self::Target) -> io::Result<()>;
 
     fn can_recreate(&self) -> bool {
         true
@@ -67,7 +67,7 @@ pub trait EndpointWithContext<C> {
 
     fn create_target(&self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target>;
 
-    fn poll(&self, target: &mut Self::Target, context: &mut C) -> io::Result<()>;
+    fn poll(&mut self, target: &mut Self::Target, context: &mut C) -> io::Result<()>;
 
     fn can_recreate(&self) -> bool {
         true
@@ -95,7 +95,7 @@ pub mod ws {
 
         fn create_websocket(&self, addr: SocketAddr) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
 
-        fn poll(&self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()>;
+        fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()>;
     }
 
     impl<T> Endpoint for T
@@ -115,7 +115,7 @@ pub mod ws {
         }
 
         #[inline]
-        fn poll(&self, target: &mut Self::Target) -> io::Result<()> {
+        fn poll(&mut self, target: &mut Self::Target) -> io::Result<()> {
             self.poll(target)
         }
     }
@@ -127,7 +127,7 @@ pub mod ws {
 
         fn create_websocket(&self, addr: SocketAddr, ctx: &mut C) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
 
-        fn poll(&self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut C) -> io::Result<()>;
+        fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut C) -> io::Result<()>;
     }
 
     impl<T, C> EndpointWithContext<C> for T
@@ -147,7 +147,7 @@ pub mod ws {
         }
 
         #[inline]
-        fn poll(&self, target: &mut Self::Target, context: &mut C) -> io::Result<()> {
+        fn poll(&mut self, target: &mut Self::Target, context: &mut C) -> io::Result<()> {
             self.poll(target, context)
         }
     }

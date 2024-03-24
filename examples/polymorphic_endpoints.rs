@@ -46,7 +46,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
         }
     }
 
-    fn poll(&self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut FeedContext) -> io::Result<()> {
+    fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut FeedContext) -> io::Result<()> {
         match self {
             MarketDataEndpoint::Ticker(ticker) => TlsWebsocketEndpointWithContext::poll(ticker, ws, ctx),
             MarketDataEndpoint::Trade(trade) => TlsWebsocketEndpointWithContext::poll(trade, ws, ctx),
@@ -96,7 +96,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 
     #[inline]
-    fn poll(&self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
+    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
         while let Some(WebsocketFrame::Text(ts, fin, data)) = ws.receive_next()? {
             info!("{ts}: ({fin}) {}", String::from_utf8_lossy(data));
         }
@@ -151,7 +151,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
     }
 
     #[inline]
-    fn poll(&self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
+    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
         while let Some(WebsocketFrame::Text(ts, fin, data)) = ws.receive_next()? {
             info!("{ts}: ({fin}) {}", String::from_utf8_lossy(data));
         }

@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 
+#[cfg(dodoctest)]
 use crate::service::IOService;
 use url::{ParseError, Url};
 

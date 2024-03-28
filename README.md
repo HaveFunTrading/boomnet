@@ -16,7 +16,7 @@ particularly focusing on TCP stream-oriented clients that utilise various protoc
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
-boomnet = { version = "0.0.12", features = ["full"]}
+boomnet = { version = "0.0.13", features = ["full"]}
 ```
 
 ## Design Principles

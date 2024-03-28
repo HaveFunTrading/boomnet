@@ -1,9 +1,9 @@
 [package]
 name = "boomnet"
-version = "0.0.12"
+version = "0.0.13"
 edition = "2021"
 license = "MIT"
-description = "Framework for building low latency network applications."
+description = "Framework for building low latency websocket client based applications."
 documentation = "https://docs.rs/boomnet/"
 readme = "./README.md"
 repository = "https://github.com/HaveFunTrading/boomnet"

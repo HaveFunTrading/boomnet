@@ -11,6 +11,9 @@ keywords = ["tungstenite", "async", "client", "websocket", "mio"]
 categories = ["network-programming", "web-programming::websocket"]
 rust-version = "1.74.1"
 
+[package.metadata.docs.rs]
+features = ["full"]
+
 [features]
 default = []
 disable-checks = []
@@ -71,6 +74,10 @@ required-features = ["mio", "tls", "ws"]
 [[example]]
 name = "recorded_stream"
 required-features = ["tls"]
+
+[[example]]
+name = "replay_stream"
+required-features = ["ws"]
 
 [[example]]
 name = "ws_client"

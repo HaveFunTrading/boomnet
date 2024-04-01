@@ -1,9 +1,9 @@
 //! Websocket protocol
 
-use std::io::ErrorKind::{Other, WouldBlock};
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::{io, mem};
+use std::io::{Read, Write};
+use std::io::ErrorKind::{Other, WouldBlock};
+use std::net::TcpStream;
 
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
@@ -12,10 +12,11 @@ use url::Url;
 
 use crate::buffer;
 use crate::select::Selectable;
+#[cfg(feature = "tls")]
 use crate::stream::tls::{IntoTlsStream, NotTlsStream, TlsReadyStream, TlsStream};
 use crate::ws::decoder::Decoder;
-use crate::ws::handshake::{HandshakeState, Handshaker};
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
+use crate::ws::handshake::{Handshaker, HandshakeState};
 
 mod decoder;
 pub mod ds;
@@ -215,12 +216,14 @@ where
     }
 }
 
+#[cfg(feature = "tls")]
 pub trait IntoTlsWebsocket {
     fn into_tls_websocket(self, url: &str) -> Websocket<TlsStream<Self>>
     where
         Self: Sized;
 }
 
+#[cfg(feature = "tls")]
 impl<T> IntoTlsWebsocket for T
 where
     T: Read + Write + NotTlsStream,
@@ -236,12 +239,14 @@ where
     }
 }
 
+#[cfg(feature = "tls")]
 pub trait TryIntoTlsReadyWebsocket {
     fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
     where
         Self: Sized;
 }
 
+#[cfg(feature = "tls")]
 impl<T> TryIntoTlsReadyWebsocket for T
 where
     T: AsRef<str>,

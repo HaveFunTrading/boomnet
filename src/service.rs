@@ -18,7 +18,7 @@ use crate::util::current_time_nanos;
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 
 /// Handles the lifecycle of endpoints (see [`Endpoint`]), which are typically network connections.
-/// It uses [`SelectService`] pattern for managing asynchronous I/O operations.
+/// It uses `SelectService` pattern for managing asynchronous I/O operations.
 pub struct IOService<S: Selector, E, C> {
     selector: S,
     pending_endpoints: VecDeque<E>,
@@ -29,7 +29,7 @@ pub struct IOService<S: Selector, E, C> {
     auto_disconnect: Option<Duration>,
 }
 
-/// Defines how an instance that implements [`SelectService`] can be transformed
+/// Defines how an instance that implements `SelectService` can be transformed
 /// into an [`IOService`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOService<E> {
     fn into_io_service(self, idle_strategy: IdleStrategy) -> IOService<Self, E, ()>
@@ -168,7 +168,7 @@ where
     E: EndpointWithContext<C, Target = S::Target>,
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
-    /// on the [`SelectService`] poll results. It then iterates through all endpoints, either
+    /// on the `SelectService` poll results. It then iterates through all endpoints, either
     /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
     pub fn poll(&mut self, context: &mut C) -> io::Result<()> {

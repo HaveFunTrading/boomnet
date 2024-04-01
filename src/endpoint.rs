@@ -44,9 +44,7 @@ impl TryFrom<Result<Url, ParseError>> for ConnectionInfo {
     }
 }
 
-/// Entry point for the application logic. Endpoints are registered and Managed by [IOService].
-///
-/// [IOService]: crate::service::IOService;
+/// Entry point for the application logic. Endpoints are registered and Managed by 'IOService'.
 pub trait Endpoint {
     /// Defines protocol and stream this endpoint operates on.
     type Target;
@@ -67,14 +65,12 @@ pub trait Endpoint {
     }
 }
 
-/// Marker trait to be applied on user defined `struct` that is registered with [IOService]
+/// Marker trait to be applied on user defined `struct` that is registered with 'IOService'
 /// as context.
 pub trait Context {}
 
 /// Entry point for the application logic that exposes user provided [Context].
-/// Endpoints are registered and Managed by [IOService].
-///
-/// [IOService]: crate::service::IOService;
+/// Endpoints are registered and Managed by `IOService`.
 pub trait EndpointWithContext<C> {
     /// Defines protocol and stream this endpoint operates on.
     type Target;

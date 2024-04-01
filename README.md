@@ -79,7 +79,7 @@ offering the following features.
 
 ## Example Usage
 
-> The repository contains comprehensive list of [examples](https://github.com/HaveFunTrading/boomnet/tree/main/examples) to follow.
+> The repository contains comprehensive list of other [examples](https://github.com/HaveFunTrading/boomnet/tree/main/examples).
 
 The following example illustrates how to use multiple websocket connections with `IOService` in order to consume messages from the Binance cryptocurrency
 exchange. First, we need to define and implement our `Endpoint`. The framework provides `TlsWebsocketEndpoint` trait

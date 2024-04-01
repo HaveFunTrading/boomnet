@@ -9,7 +9,7 @@
 [docs]: https://docs.rs/boomnet
 
 ## Overview
-BoomNet is a high-performance framework designed to facilitate the development of low-latency network applications,
+BoomNet is a high-performance framework designed targeting development of low-latency network applications,
 particularly focusing on TCP stream-oriented clients that utilise various protocols.
 
 ## Installation
@@ -21,18 +21,18 @@ boomnet = { version = "0.0.13", features = ["full"]}
 
 ## Design Principles
 
-BoomNet is structured into multiple layers, with each subsequent layer building upon its predecessor,
+The framework is structured into multiple layers, with each subsequent layer building upon its predecessor,
 enhancing functionality and abstraction.
 
 ### Stream
-The first layer offers defines `stream` as abstractions over TCP connections, adhering to the following characteristics.
+The first layer defines `stream` as abstraction over TCP connection, adhering to the following characteristics.
 
 * Must implement `Read` and `Write` traits for I/O operations.
 * Operates in a non-blocking manner.
-* Integrates TLS using `rustls`.
-* Supports recording and replaying network byte streams.
-* Allows binding to specific network interfaces.
-* Facilitates the implementation of TCP-oriented client protocols such as websocket, HTTP, and FIX.
+* Integrates with TLS using `rustls`.
+* Supports recording and replay of network byte streams.
+* Allows binding to specific network interface.
+* Facilitates implementation of TCP oriented client protocols such as WebSocket, HTTP, and FIX.
 
 Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.
 
@@ -48,7 +48,7 @@ let ws: Websocket<RecordedStream<TlsStream<TcpStream>>> = stream.into_websocket(
 ```
 
 ### Selector
-`Selector` provides abstraction over OS-specific mechanisms (like `epoll`) for efficiently monitoring socket readiness events.
+`Selector` provides abstraction over OS specific mechanisms (like `epoll`) for efficiently monitoring socket readiness events.
 Though primarily utilised internally, selectors are crucial for the `IOService` functionality, currently offering both
 `mio` and `direct` (no-op) implementations.
 
@@ -58,13 +58,12 @@ let mut io_service = MioSelector::new()?.into_io_service(IdleStrategy::Sleep(Dur
 
 ### Service
 The last layer manages lifecycle of endpoints and provides auxiliary services (e.g., asynchronous DNS resolution)
-through the `IOService`, which internally relies on `Selector`.
+through the `IOService`, which internally relies on the `Selector` layer.
 
-`Endpoint` serves as application-level construct, binding the communication protocol with the application's
-business logic. `IOService` oversees the connection lifecycle within endpoints.
+`Endpoint` serves as low level construct for application logic. `IOService` oversees the connection lifecycle within endpoints.
 
 ## Protocols
-BoomNet aims to support a variety of protocols, including WebSocket, HTTP, and FIX, with WebSocket client
+The aim is to support a variety of protocols, including WebSocket, HTTP, and FIX, with WebSocket client
 functionality currently available.
 
 ### Websocket
@@ -73,13 +72,16 @@ offering the following features.
 
 * Compatibility with any stream.
 * TCP batch-aware timestamps for frames read in the same batch.
-* Not blocking on partial frame.
-* Optimised for zero-copy read and write operations.
+* Not blocking on partial frame(s).
+* Optimised for zero-copy read and write.
 * Optional masking of outbound frames.
 * Standalone usage or in conjunction with `Selector` and `IOService`.
 
 ## Example Usage
-The following example illustrates how to use websocket client in order to consume messages from the Binance cryptocurrency
+
+> The repository contains comprehensive list of [examples](https://github.com/HaveFunTrading/boomnet/tree/main/examples) to follow.
+
+The following example illustrates how to use multiple websocket connections with `IOService` in order to consume messages from the Binance cryptocurrency
 exchange. First, we need to define and implement our `Endpoint`. The framework provides `TlsWebsocketEndpoint` trait
 that we can use.
 
@@ -104,6 +106,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
         self.url
     }
 
+    // called by the IO service whenever a connection has to be established for this endpoint
     fn create_websocket(&self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         
         // create secure websocket
@@ -121,11 +124,11 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     }
 
     #[inline]
-    fn poll(&self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
+    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
         // keep calling receive_next until no more frames in the current batch
         while let Some(WebsocketFrame::Text(ts, fin, data)) = ws.receive_next()? {
             // handle the message
-            println!("{ts}: ({fin}) {}", String::from_utf8_lossy(data));
+            println!("[{}] {ts}: ({fin}) {}", self.id, String::from_utf8_lossy(data));
         }
         Ok(())
     }
@@ -155,7 +158,7 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-It is often required to expose some application state to the `Endpoint`. This can be achieved with user defined `Context`.
+It is often required to expose shared state to the `Endpoint`. This can be achieved with user defined `Context`.
 
 ```rust
 struct FeedContext {
@@ -180,7 +183,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 
     #[inline]
-    fn poll(&self, ws: &mut TlsWebsocket<Self::Stream>, ctx: &mut FeedContext) -> io::Result<()> {
+    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, ctx: &mut FeedContext) -> io::Result<()> {
         // we now have access to context
     }
 }
@@ -201,7 +204,7 @@ loop {
 ```
 
 ## Features
-BoomNet's feature set is modular, allowing for tailored functionality based on project needs. The `full` feature enables
+BoomNet feature set is modular, allowing for tailored functionality based on project needs. The `full` feature enables
 all available features, while individual components can be enabled as needed.
 
 * [mio](#mio)

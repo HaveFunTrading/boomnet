@@ -1,9 +1,9 @@
 //! Websocket protocol
 
-use std::{io, mem};
-use std::io::{Read, Write};
 use std::io::ErrorKind::{Other, WouldBlock};
+use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::{io, mem};
 
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
@@ -15,8 +15,8 @@ use crate::select::Selectable;
 #[cfg(feature = "tls")]
 use crate::stream::tls::{IntoTlsStream, NotTlsStream, TlsReadyStream, TlsStream};
 use crate::ws::decoder::Decoder;
+use crate::ws::handshake::{HandshakeState, Handshaker};
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
-use crate::ws::handshake::{Handshaker, HandshakeState};
 
 mod decoder;
 pub mod ds;

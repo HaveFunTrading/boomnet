@@ -8,9 +8,9 @@ use mio::{Events, Interest, Poll, Token};
 
 use crate::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::idle::IdleStrategy;
+use crate::node::IONode;
 use crate::select::{Selectable, Selector, SelectorToken};
 use crate::service::{IOService, IntoIOService, IntoIOServiceWithContext};
-use crate::IONode;
 
 const NO_WAIT: Option<Duration> = Some(Duration::from_millis(0));
 

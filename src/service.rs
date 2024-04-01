@@ -11,9 +11,9 @@ use log::error;
 
 use crate::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::idle::IdleStrategy;
+use crate::node::IONode;
 use crate::select::{Selector, SelectorToken};
 use crate::util::current_time_nanos;
-use crate::IONode;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 

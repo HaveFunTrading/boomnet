@@ -9,7 +9,7 @@
 [docs]: https://docs.rs/boomnet
 
 ## Overview
-BoomNet is a high-performance framework designed targeting development of low-latency network applications,
+BoomNet is a high-performance framework targeting development of low-latency network applications,
 particularly focusing on TCP stream-oriented clients that utilise various protocols.
 
 ## Installation

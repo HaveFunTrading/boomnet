@@ -1,4 +1,4 @@
-<h1 align="left"><img width="500" src="https://github.com/HaveFunTrading/boomnet/blob/564a67d22e841eed48aa8a1db9cf7c7847ec281d/docs/thumbnail.png"/></h1>
+<h1 align="left"><img width="500" src="https://raw.githubusercontent.com/havefuntrading/boomnet/564a67d22e841eed48aa8a1db9cf7c7847ec281d/docs/thumbnail.png"/></h1>
 
 [![Build Status]][actions] [![Latest Version]][crates.io] [![Docs Badge]][docs]
 

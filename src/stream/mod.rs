@@ -34,7 +34,7 @@ const EINPROGRESS: i32 = 36;
 /// use boomnet::stream::BindAndConnect;
 ///
 /// let inet = "eth1".into_network_interface().and_then(|inet| inet.to_socket_addr());
-/// let stream = TcpStream::bind_and_connect("stream.binance.com", inet, None)?;
+/// let stream = TcpStream::bind_and_connect("stream.binance.com", inet, None).unwrap();
 /// ```
 ///
 /// Set `SO_INCOMING_CPU` affinity.
@@ -43,7 +43,7 @@ const EINPROGRESS: i32 = 36;
 /// use std::net::TcpStream;
 /// use boomnet::stream::BindAndConnect;
 ///
-/// let stream = TcpStream::bind_and_connect("stream.binance.com", None, Some(2))?;
+/// let stream = TcpStream::bind_and_connect("stream.binance.com", None, Some(2)).unwrap();
 /// ```
 pub trait BindAndConnect {
     /// Creates `TcpStream` and optionally binds it to network interface and/or CPU before
@@ -59,7 +59,7 @@ pub trait BindAndConnect {
     /// use boomnet::stream::BindAndConnect;
     ///
     /// let inet = "eth1".into_network_interface().and_then(|inet| inet.to_socket_addr());
-    /// let stream = TcpStream::bind_and_connect("stream.binance.com", inet, None)?;
+    /// let stream = TcpStream::bind_and_connect("stream.binance.com", inet, None).unwrap();
     /// ```
     ///
     /// Set `SO_INCOMING_CPU` affinity.
@@ -68,7 +68,7 @@ pub trait BindAndConnect {
     /// use std::net::TcpStream;
     /// use boomnet::stream::BindAndConnect;
     ///
-    /// let stream = TcpStream::bind_and_connect("stream.binance.com", None, Some(2))?;
+    /// let stream = TcpStream::bind_and_connect("stream.binance.com", None, Some(2)).unwrap();
     /// ```
     fn bind_and_connect<A>(addr: A, net_iface: Option<SocketAddr>, cpu: Option<usize>) -> io::Result<TcpStream>
     where

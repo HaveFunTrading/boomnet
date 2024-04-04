@@ -22,7 +22,7 @@ pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 /// use boomnet::stream::tls::IntoTlsStream;
 /// use boomnet::ws::IntoWebsocket;
 ///
-/// let mut ws = TcpStream::connect("stream.binance.com:9443")?
+/// let mut ws = TcpStream::connect("stream.binance.com:9443").unwrap()
 ///  .into_tls_stream("stream.binance.com")
 ///  .into_default_buffered_stream()
 ///  .into_websocket("wss://stream.binance.com:9443/ws");
@@ -36,7 +36,7 @@ pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 /// use boomnet::stream::tls::IntoTlsStream;
 /// use boomnet::ws::IntoWebsocket;
 ///
-/// let mut ws = TcpStream::connect("stream.binance.com:9443")?
+/// let mut ws = TcpStream::connect("stream.binance.com:9443").unwrap()
 ///  .into_tls_stream("stream.binance.com")
 ///  .into_buffered_stream::<512>()
 ///  .into_websocket("wss://stream.binance.com:9443/ws");

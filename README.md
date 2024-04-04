@@ -73,7 +73,7 @@ offering the following features.
 * Compatibility with any stream.
 * TCP batch-aware timestamps for frames read in the same batch.
 * Not blocking on partial frame(s).
-* Optimised for zero-copy read and write.
+* Designed for zero-copy read and write.
 * Optional masking of outbound frames.
 * Standalone usage or in conjunction with `Selector` and `IOService`.
 

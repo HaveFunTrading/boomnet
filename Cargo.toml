@@ -5,6 +5,7 @@ edition = "2021"
 license = "MIT"
 description = "Framework for building low latency websocket client based applications."
 readme = "./README.md"
+documentation = "https://docs.rs/boomnet/0.0.17"
 repository = "https://github.com/HaveFunTrading/boomnet"
 keywords = ["tungstenite", "async", "client", "websocket", "mio"]
 categories = ["network-programming", "web-programming::websocket"]

@@ -57,8 +57,8 @@ let mut io_service = MioSelector::new()?.into_io_service(IdleStrategy::Sleep(Dur
 ```
 
 ### Service
-The last layer manages lifecycle of endpoints and provides auxiliary services (e.g., asynchronous DNS resolution)
-through the `IOService`, which internally relies on the `Selector` layer.
+The last layer manages lifecycle of endpoints and provides auxiliary services (such as asynchronous DNS resolution and
+auto disconnect) through the `IOService`.
 
 `Endpoint` serves as low level construct for application logic. `IOService` oversees the connection lifecycle within endpoints.
 

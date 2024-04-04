@@ -1,4 +1,4 @@
-//! Entry point for the application logic..
+//! Entry point for the application logic.
 
 use std::fmt::{Display, Formatter};
 use std::io;

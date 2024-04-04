@@ -1,4 +1,4 @@
-//! Service to manage multiple endpoint  lifecycle.
+//! Service to manage multiple endpoint lifecycle.
 
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;

@@ -1,4 +1,4 @@
-//! Websocket protocol
+//! Websocket protocol.
 
 use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
@@ -172,7 +172,6 @@ impl<S: Read + Write> Websocket<S> {
 
     fn send(&mut self, fin: bool, op_code: u8, body: Option<&[u8]>) -> Result<(), Error> {
         self.ensure_not_closed()?;
-
         match encoder::send(&mut self.stream, fin, op_code, body) {
             Ok(()) => Ok(()),
             Err(err) => {

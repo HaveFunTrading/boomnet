@@ -1,4 +1,4 @@
-//!  Utilities related to working with network interfaces.
+//! Utilities related to working with network interfaces.
 
 use std::net::SocketAddr;
 

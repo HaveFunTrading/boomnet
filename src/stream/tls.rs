@@ -9,6 +9,7 @@ use mio::{event::Source, Interest, Registry, Token};
 use rustls::{ClientConnection, RootCertStore};
 
 use crate::select::Selectable;
+use crate::stream::buffer::BufferedStream;
 #[cfg(feature = "mio")]
 use crate::stream::mio::MioStream;
 use crate::stream::record::RecordedStream;
@@ -183,7 +184,10 @@ impl<S: Selectable> Selectable for TlsReadyStream<S> {
 pub trait NotTlsStream {}
 
 impl NotTlsStream for TcpStream {}
+
 impl<S> NotTlsStream for RecordedStream<S> {}
+
+impl<S> NotTlsStream for BufferedStream<S> {}
 
 #[cfg(feature = "mio")]
 impl NotTlsStream for MioStream {}

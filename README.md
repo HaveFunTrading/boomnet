@@ -1,3 +1,5 @@
+<h1 align="center"><img width="500" src="https://github.com/HaveFunTrading/boomnet/blob/10a6e2ce0db197ba7efaf994084d035c3402b31f/docs/thumbnail.png"/></h1>
+
 # BoomNet 
 [![Build Status]][actions] [![Latest Version]][crates.io] [![Docs Badge]][docs]
 

@@ -1,6 +1,6 @@
 <h1 align="left"><img width="500" src="https://raw.githubusercontent.com/havefuntrading/boomnet/564a67d22e841eed48aa8a1db9cf7c7847ec281d/docs/thumbnail.png"/></h1>
 
-[![Build Status]][actions] [![Latest Version]][crates.io] [![Docs Badge]][docs]
+[![Build Status]][actions] [![Latest Version]][crates.io] [![Docs Badge]][docs] [![License Badge]][license]
 
 [Build Status]: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fhavefuntrading%2Fboomnet%2Fbadge%3Fref%3Dmain&style=flat&label=build&logo=none
 [actions]: https://actions-badge.atrox.dev/havefuntrading/boomnet/goto?ref=main
@@ -8,6 +8,8 @@
 [crates.io]: https://crates.io/crates/boomnet
 [Docs Badge]: https://docs.rs/boomnet/badge.svg
 [docs]: https://docs.rs/boomnet
+[License Badge]: https://img.shields.io/badge/License-MIT-blue.svg
+[license]: LICENSE
 
 ## Overview
 BoomNet is a high-performance framework targeting development of low-latency network applications,
@@ -17,7 +19,7 @@ particularly focusing on TCP stream-oriented clients that utilise various protoc
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
-boomnet = { version = "0.0.18", features = ["full"]}
+boomnet = { version = "0.0.19", features = ["full"]}
 ```
 
 ## Design Principles

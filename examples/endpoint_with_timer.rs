@@ -1,3 +1,4 @@
+use idle::IdleStrategy;
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -6,7 +7,6 @@ use log::info;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
 use boomnet::endpoint::Context;
-use boomnet::idle::IdleStrategy;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;

@@ -1,7 +1,7 @@
+use idle::IdleStrategy;
 use std::net::TcpStream;
 use std::time::Duration;
 
-use boomnet::idle::IdleStrategy;
 use boomnet::stream::record::IntoRecordedStream;
 use boomnet::stream::tls::IntoTlsStream;
 use boomnet::ws::{IntoWebsocket, WebsocketFrame};

@@ -3,11 +3,11 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use ansi_term::Color::{Green, Purple, Red, Yellow};
+use idle::IdleStrategy;
 use log::info;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
 use boomnet::endpoint::Context;
-use boomnet::idle::IdleStrategy;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;

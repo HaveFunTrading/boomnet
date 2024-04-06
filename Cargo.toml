@@ -1,11 +1,11 @@
 [package]
 name = "boomnet"
-version = "0.0.18"
+version = "0.0.19"
 edition = "2021"
 license = "MIT"
 description = "Framework for building low latency websocket client based applications."
 readme = "./README.md"
-documentation = "https://docs.rs/boomnet/0.0.18"
+documentation = "https://docs.rs/boomnet"
 repository = "https://github.com/HaveFunTrading/boomnet"
 keywords = ["tungstenite", "async", "client", "websocket", "mio"]
 categories = ["network-programming", "web-programming::websocket"]
@@ -28,6 +28,7 @@ thiserror = "1.0.50"
 log = "0.4.20"
 socket2 = { version = "0.5.5", features = ["all"] }
 pnet = "0.34.0"
+idle = "0.2.0"
 mio = { version = "0.8.10", features = ["net", "os-poll"], optional = true }
 rustls = { version = "0.22.1", optional = true }
 webpki-roots = { version = "0.26.0", optional = true }

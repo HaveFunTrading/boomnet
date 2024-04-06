@@ -1,6 +1,6 @@
+use idle::IdleStrategy;
 use std::time::Duration;
 
-use boomnet::idle::IdleStrategy;
 use boomnet::stream::replay::ReplayStream;
 use boomnet::ws::{IntoWebsocket, WebsocketFrame};
 

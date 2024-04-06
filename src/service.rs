@@ -1,5 +1,6 @@
 //! Service to manage multiple endpoint lifecycle.
 
+use idle::IdleStrategy;
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
@@ -10,7 +11,6 @@ use std::{io, mem};
 use log::error;
 
 use crate::endpoint::{Context, Endpoint, EndpointWithContext};
-use crate::idle::IdleStrategy;
 use crate::node::IONode;
 use crate::select::{Selector, SelectorToken};
 use crate::util::current_time_nanos;

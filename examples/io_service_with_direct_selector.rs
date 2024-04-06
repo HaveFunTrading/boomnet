@@ -1,9 +1,9 @@
+use idle::IdleStrategy;
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
-use boomnet::idle::IdleStrategy;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::select::direct::DirectSelector;
 use boomnet::service::IntoIOService;

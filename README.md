@@ -90,6 +90,7 @@ that we can use.
 
 ```rust
 
+#[derive(Default)]
 struct TradeEndpoint {
     id: u32,
     url: &'static str,

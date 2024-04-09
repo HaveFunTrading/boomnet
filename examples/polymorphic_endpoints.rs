@@ -1,10 +1,10 @@
 #![allow(unused)]
 
-use idle::IdleStrategy;
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
+use idle::IdleStrategy;
 use log::info;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
@@ -20,9 +20,16 @@ use boomnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
 struct FeedContext;
 
 impl Context for FeedContext {}
+
 enum MarketDataEndpoint {
     Trade(TradeEndpoint),
     Ticker(TickerEndpoint),
+}
+
+impl Default for MarketDataEndpoint {
+    fn default() -> Self {
+        Self::Trade(TradeEndpoint::default())
+    }
 }
 
 impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
@@ -54,6 +61,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
     }
 }
 
+#[derive(Default)]
 struct TradeEndpoint {
     id: u32,
     url: &'static str,
@@ -104,6 +112,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 }
 
+#[derive(Default)]
 struct TickerEndpoint {
     id: u32,
     url: &'static str,

@@ -1,8 +1,8 @@
-use idle::IdleStrategy;
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use idle::IdleStrategy;
 use log::info;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
@@ -14,12 +14,11 @@ use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::BindAndConnect;
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
-/*
-This example demonstrates how to implement explicit timer inside the endpoint. Since endpoint
-poll method is called on every cycle by the io service we can implement timer functionality
-directly inside the endpoint. In this case, the endpoint will keep disconnecting every 10s.
- */
+/// This example demonstrates how to implement explicit timer inside the endpoint. Since endpoint
+/// poll method is called on every cycle by the io service we can implement timer functionality
+/// directly inside the endpoint. In this case, the endpoint will keep disconnecting every 10s.
 
+#[derive(Default)]
 struct TradeEndpoint {
     url: &'static str,
     net_iface: Option<SocketAddr>,

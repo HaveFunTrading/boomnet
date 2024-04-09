@@ -1,13 +1,12 @@
 //! Service to manage multiple endpoint lifecycle.
 
-use idle::IdleStrategy;
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
-use std::mem::MaybeUninit;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 use std::{io, mem};
 
+use idle::IdleStrategy;
 use log::error;
 
 use crate::endpoint::{Context, Endpoint, EndpointWithContext};
@@ -89,7 +88,7 @@ impl<S: Selector, E, C> IOService<S, E, C> {
 impl<S, E> IOService<S, E, ()>
 where
     S: Selector,
-    E: Endpoint<Target = S::Target>,
+    E: Endpoint<Target = S::Target> + Default,
 {
     /// This method polls all registered endpoints for readiness and performs I/O operations based
     /// on the ['Selector'] poll results. It then iterates through all endpoints, either
@@ -124,8 +123,7 @@ where
                     self.selector.unregister(io_node).unwrap();
                     // we need to transfer the ownership
                     // the original io_node will be dropped anyway
-                    let mut endpoint =
-                        unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                    let mut endpoint = mem::take(&mut io_node.endpoint);
                     if endpoint.can_recreate() {
                         self.pending_endpoints.push_back(endpoint);
                     } else {
@@ -144,7 +142,7 @@ where
                 self.selector.unregister(io_node).unwrap();
                 // we need to transfer the ownership
                 // the original io_node will be dropped anyway
-                let mut endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                let mut endpoint = mem::take(&mut io_node.endpoint);
                 if endpoint.can_recreate() {
                     self.pending_endpoints.push_back(endpoint);
                 } else {
@@ -165,7 +163,7 @@ impl<S, E, C> IOService<S, E, C>
 where
     S: Selector,
     C: Context,
-    E: EndpointWithContext<C, Target = S::Target>,
+    E: EndpointWithContext<C, Target = S::Target> + Default,
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
     /// on the `SelectService` poll results. It then iterates through all endpoints, either
@@ -200,8 +198,7 @@ where
                     self.selector.unregister(io_node).unwrap();
                     // we need to transfer the ownership
                     // the original io_node will be dropped anyway
-                    let mut endpoint =
-                        unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                    let mut endpoint = mem::take(&mut io_node.endpoint);
                     if endpoint.can_recreate() {
                         self.pending_endpoints.push_back(endpoint);
                     } else {
@@ -220,7 +217,7 @@ where
                 self.selector.unregister(io_node).unwrap();
                 // we need to transfer the ownership
                 // the original io_node will be dropped anyway
-                let mut endpoint = unsafe { mem::replace(&mut io_node.endpoint, MaybeUninit::uninit().assume_init()) };
+                let mut endpoint = mem::take(&mut io_node.endpoint);
                 if endpoint.can_recreate() {
                     self.pending_endpoints.push_back(endpoint);
                 } else {

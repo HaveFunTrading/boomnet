@@ -11,6 +11,7 @@ use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::BindAndConnect;
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
+#[derive(Default)]
 struct TradeEndpoint {
     id: u32,
     url: &'static str,

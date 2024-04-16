@@ -19,7 +19,7 @@ particularly focusing on TCP stream-oriented clients that utilise various protoc
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
-boomnet = { version = "0.0.20", features = ["full"]}
+boomnet = { version = "0.0.21", features = ["full"]}
 ```
 
 ## Design Principles
@@ -111,7 +111,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     }
 
     // called by the IO service whenever a connection has to be established for this endpoint
-    fn create_websocket(&self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         
         // create secure websocket
         let mut ws = TcpStream::bind_and_connect(addr, None, None)?
@@ -182,7 +182,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
         self.url
     }
 
-    fn create_websocket(&self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
         // we now have access to context
     }
 

@@ -40,7 +40,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
         self.url.as_str()
     }
 
-    fn create_websocket(&self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
             .into_mio_stream()
             .into_tls_websocket(self.url.as_str());
@@ -64,7 +64,14 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     fn can_recreate(&mut self) -> bool {
         // this method is called by IO service upon every disconnect
         // we can tap into it to perform any cleanup logic if required
-        println!("handling disconnect event");
+        println!("handling can_recreate");
+        true
+    }
+
+    fn can_auto_disconnect(&mut self) -> bool {
+        // this method is called by IO service if auto_disconnect is enabled just before
+        // disconnecting the endpoint
+        println!("handling can_auto_disconnect");
         true
     }
 }

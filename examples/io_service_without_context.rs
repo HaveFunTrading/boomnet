@@ -40,7 +40,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
         self.url
     }
 
-    fn create_websocket(&self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
             .into_mio_stream()
             .into_tls_websocket(self.url);

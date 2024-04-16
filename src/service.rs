@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::{io, mem};
 
 use idle::IdleStrategy;
-use log::error;
+use log::{error, warn};
 
 use crate::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::node::IONode;
@@ -99,7 +99,7 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some(endpoint) = self.pending_endpoints.pop_front() {
+                if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
                     let stream = endpoint.create_target(addr)?;
                     let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
@@ -119,18 +119,26 @@ where
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
-                    error!("error when polling endpoint: auto disconnected after {:?}", self.auto_disconnect.unwrap());
-                    self.selector.unregister(io_node).unwrap();
-                    // we need to transfer the ownership
-                    // the original io_node will be dropped anyway
-                    let mut endpoint = mem::take(&mut io_node.endpoint);
-                    if endpoint.can_recreate() {
-                        self.pending_endpoints.push_back(endpoint);
+                    // check if we really have to disconnect
+                    return if io_node.endpoint.can_auto_disconnect() {
+                        warn!("endpoint auto disconnected after {:?}", self.auto_disconnect.unwrap());
+                        self.selector.unregister(io_node).unwrap();
+                        // we need to transfer the ownership
+                        // the original io_node will be dropped anyway
+                        let mut endpoint = mem::take(&mut io_node.endpoint);
+                        if endpoint.can_recreate() {
+                            self.pending_endpoints.push_back(endpoint);
+                        } else {
+                            panic!("unrecoverable error when polling endpoint");
+                        }
+                        false
                     } else {
-                        panic!("unrecoverable error when polling endpoint");
-                    }
+                        // extend the endpoint TTL
+                        io_node.disconnect_time_ns += self.auto_disconnect.unwrap().as_nanos() as u64;
+                        true
+                    };
                 }
-                !force_disconnect
+                true
             });
         }
 
@@ -174,7 +182,7 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some(endpoint) = self.pending_endpoints.pop_front() {
+                if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
                     let stream = endpoint.create_target(addr, context)?;
                     let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
@@ -194,18 +202,26 @@ where
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
-                    error!("error when polling endpoint: auto disconnected after {:?}", self.auto_disconnect.unwrap());
-                    self.selector.unregister(io_node).unwrap();
-                    // we need to transfer the ownership
-                    // the original io_node will be dropped anyway
-                    let mut endpoint = mem::take(&mut io_node.endpoint);
-                    if endpoint.can_recreate() {
-                        self.pending_endpoints.push_back(endpoint);
+                    // check if we really have to disconnect
+                    return if io_node.endpoint.can_auto_disconnect(context) {
+                        warn!("endpoint auto disconnected after {:?}", self.auto_disconnect.unwrap());
+                        self.selector.unregister(io_node).unwrap();
+                        // we need to transfer the ownership
+                        // the original io_node will be dropped anyway
+                        let mut endpoint = mem::take(&mut io_node.endpoint);
+                        if endpoint.can_recreate(context) {
+                            self.pending_endpoints.push_back(endpoint);
+                        } else {
+                            panic!("unrecoverable error when polling endpoint");
+                        }
+                        false
                     } else {
-                        panic!("unrecoverable error when polling endpoint");
-                    }
+                        // extend the endpoint TTL
+                        io_node.disconnect_time_ns += self.auto_disconnect.unwrap().as_nanos() as u64;
+                        true
+                    };
                 }
-                !force_disconnect
+                true
             });
         }
 
@@ -218,7 +234,7 @@ where
                 // we need to transfer the ownership
                 // the original io_node will be dropped anyway
                 let mut endpoint = mem::take(&mut io_node.endpoint);
-                if endpoint.can_recreate() {
+                if endpoint.can_recreate(context) {
                     self.pending_endpoints.push_back(endpoint);
                 } else {
                     panic!("unrecoverable error when polling endpoint");

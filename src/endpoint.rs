@@ -53,14 +53,21 @@ pub trait Endpoint {
     fn connection_info(&self) -> io::Result<ConnectionInfo>;
 
     /// Used by the `IOService` to create connection upon disconnect.
-    fn create_target(&self, addr: SocketAddr) -> io::Result<Self::Target>;
+    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Self::Target>;
 
     /// Called by the `IOService` on each duty cycle.
     fn poll(&mut self, target: &mut Self::Target) -> io::Result<()>;
 
     /// Upon disconnection `IOService` will query the endpoint if the connection can be
-    /// recreated. If not it will cause panic.
+    /// recreated. If not, it will cause program to panic.
     fn can_recreate(&mut self) -> bool {
+        true
+    }
+
+    /// When `auto_disconnect` is used the service will check with the endpoint before
+    /// disconnecting. If `false` is returned the service will update the endpoint next
+    /// disconnect time as per the `auto_disconnect` configuration.
+    fn can_auto_disconnect(&mut self) -> bool {
         true
     }
 }
@@ -80,14 +87,21 @@ pub trait EndpointWithContext<C> {
 
     /// Used by the `IOService` to create connection upon disconnect passing user provided
     /// `Context`
-    fn create_target(&self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target>;
+    fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target>;
 
     /// Called by the `IOService` on each duty cycle passing user provided `Context`.
     fn poll(&mut self, target: &mut Self::Target, context: &mut C) -> io::Result<()>;
 
     /// Upon disconnection `IOService` will query the endpoint if the connection can be
-    /// recreated. If not, it will cause panic.
-    fn can_recreate(&mut self) -> bool {
+    /// recreated. If not, it will cause program to panic.
+    fn can_recreate(&mut self, _context: &mut C) -> bool {
+        true
+    }
+
+    /// When `auto_disconnect` is used the service will check with the endpoint before
+    /// disconnecting. If `false` is returned the service will update the endpoint next
+    /// disconnect time as per the `auto_disconnect` configuration.
+    fn can_auto_disconnect(&mut self, _context: &mut C) -> bool {
         true
     }
 }
@@ -111,11 +125,15 @@ pub mod ws {
 
         fn url(&self) -> &str;
 
-        fn create_websocket(&self, addr: SocketAddr) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
+        fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
 
         fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()>;
 
         fn can_recreate(&mut self) -> bool {
+            true
+        }
+
+        fn can_auto_disconnect(&mut self) -> bool {
             true
         }
     }
@@ -132,7 +150,7 @@ pub mod ws {
         }
 
         #[inline]
-        fn create_target(&self, addr: SocketAddr) -> io::Result<Self::Target> {
+        fn create_target(&mut self, addr: SocketAddr) -> io::Result<Self::Target> {
             self.create_websocket(addr)
         }
 
@@ -145,6 +163,11 @@ pub mod ws {
         fn can_recreate(&mut self) -> bool {
             self.can_recreate()
         }
+
+        #[inline]
+        fn can_auto_disconnect(&mut self) -> bool {
+            self.can_auto_disconnect()
+        }
     }
 
     pub trait TlsWebsocketEndpointWithContext<C> {
@@ -152,11 +175,16 @@ pub mod ws {
 
         fn url(&self) -> &str;
 
-        fn create_websocket(&self, addr: SocketAddr, ctx: &mut C) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
+        fn create_websocket(&mut self, addr: SocketAddr, ctx: &mut C)
+            -> io::Result<Websocket<TlsStream<Self::Stream>>>;
 
         fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut C) -> io::Result<()>;
 
-        fn can_recreate(&mut self) -> bool {
+        fn can_recreate(&mut self, _ctx: &mut C) -> bool {
+            true
+        }
+
+        fn can_auto_disconnect(&mut self, _ctx: &mut C) -> bool {
             true
         }
     }
@@ -173,7 +201,7 @@ pub mod ws {
         }
 
         #[inline]
-        fn create_target(&self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target> {
+        fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target> {
             self.create_websocket(addr, context)
         }
 
@@ -183,8 +211,13 @@ pub mod ws {
         }
 
         #[inline]
-        fn can_recreate(&mut self) -> bool {
-            self.can_recreate()
+        fn can_recreate(&mut self, context: &mut C) -> bool {
+            self.can_recreate(context)
+        }
+
+        #[inline]
+        fn can_auto_disconnect(&mut self, context: &mut C) -> bool {
+            self.can_auto_disconnect(context)
         }
     }
 }

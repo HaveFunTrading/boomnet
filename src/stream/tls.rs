@@ -69,7 +69,15 @@ impl<S: Read + Write> Write for TlsStream<S> {
 impl<S: Read + Write> TlsStream<S> {
     pub fn wrap(stream: S, server_name: &str) -> TlsStream<S> {
         let mut root_store = RootCertStore::empty();
+        #[cfg(all(feature = "webpki-roots", not(feature = "rustls-native-certs")))]
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+        #[cfg(all(feature = "rustls-native-certs", not(feature = "webpki-roots")))]
+        {
+            for cert in rustls_native_certs::load_native_certs().expect("could not load platform certs") {
+                root_store.add(cert).unwrap();
+            }
+        }
 
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)

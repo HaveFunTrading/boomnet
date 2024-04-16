@@ -12,7 +12,7 @@ use url::Url;
 
 use crate::buffer;
 use crate::select::Selectable;
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 use crate::stream::tls::{IntoTlsStream, NotTlsStream, TlsReadyStream, TlsStream};
 use crate::ws::decoder::Decoder;
 use crate::ws::handshake::{HandshakeState, Handshaker};
@@ -215,14 +215,14 @@ where
     }
 }
 
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 pub trait IntoTlsWebsocket {
     fn into_tls_websocket(self, url: &str) -> Websocket<TlsStream<Self>>
     where
         Self: Sized;
 }
 
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 impl<T> IntoTlsWebsocket for T
 where
     T: Read + Write + NotTlsStream,
@@ -238,14 +238,14 @@ where
     }
 }
 
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 pub trait TryIntoTlsReadyWebsocket {
     fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
     where
         Self: Sized;
 }
 
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 impl<T> TryIntoTlsReadyWebsocket for T
 where
     T: AsRef<str>,

@@ -17,9 +17,12 @@ features = ["full"]
 [features]
 default = []
 disable-checks = []
-full = ["mio", "tls", "ws"]
+full = ["full-tls-webpki"]
+full-tls-webpki = ["mio", "tls-webpki", "ws"]
+full-tls-native = ["mio", "tls-native", "ws"]
 mio = ["dep:mio"]
-tls = ["rustls", "webpki-roots"]
+tls-native = ["rustls", "rustls-native-certs"]
+tls-webpki = ["rustls", "webpki-roots"]
 ws = ["rand", "base64", "http", "httparse"]
 
 [dependencies]
@@ -31,11 +34,18 @@ pnet = "0.34.0"
 idle = "0.2.0"
 mio = { version = "0.8.10", features = ["net", "os-poll"], optional = true }
 rustls = { version = "0.22.1", optional = true }
-webpki-roots = { version = "0.26.0", optional = true }
 rand = { version = "0.8.5", optional = true }
 base64 = { version = "0.21.5", optional = true }
 httparse = { version = "1.8.0", optional = true }
 http = { version = "1.0.0", optional = true }
+
+[dependencies.webpki-roots]
+version = "0.26.0"
+optional = true
+
+[dependencies.rustls-native-certs]
+version = "0.7.0"
+optional = true
 
 [dev-dependencies]
 anyhow = "1"

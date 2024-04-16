@@ -13,7 +13,7 @@ pub mod file;
 pub mod mio;
 pub mod record;
 pub mod replay;
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 pub mod tls;
 
 #[cfg(target_os = "linux")]

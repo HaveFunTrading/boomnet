@@ -106,7 +106,7 @@ pub trait EndpointWithContext<C> {
     }
 }
 
-#[cfg(all(feature = "ws", feature = "tls"))]
+#[cfg(all(feature = "ws", any(feature = "tls-webpki", feature = "tls-native")))]
 pub mod ws {
     use std::io;
     use std::io::{Read, Write};

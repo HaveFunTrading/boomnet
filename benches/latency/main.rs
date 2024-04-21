@@ -15,7 +15,7 @@ fn boomnet_rtt_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("boomnet");
     group.throughput(Throughput::Bytes(MSG.len() as u64));
 
-    // run serer in the background
+    // run server in the background
     server::start_on_thread(9002);
 
     // setup client
@@ -44,7 +44,7 @@ fn tungstenite_rtt_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("tungstenite");
     group.throughput(Throughput::Bytes(MSG.len() as u64));
 
-    // run serer in the background
+    // run server in the background
     server::start_on_thread(9001);
 
     // setup client

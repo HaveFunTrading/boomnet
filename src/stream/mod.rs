@@ -72,19 +72,80 @@ pub trait BindAndConnect {
     /// ```
     fn bind_and_connect<A>(addr: A, net_iface: Option<SocketAddr>, cpu: Option<usize>) -> io::Result<TcpStream>
     where
-        A: ToSocketAddrs;
+        A: ToSocketAddrs,
+    {
+        Self::bind_and_connect_with_socket_config(addr, net_iface, cpu, |_| Ok(()))
+    }
+
+    /// Creates `TcpStream` and optionally binds it to network interface and/or CPU before
+    /// connecting. This also accepts user defined `socket_config` closure that will be applied
+    /// to the socket.
+    ///
+    /// # Examples
+    ///
+    /// Bind to a specific network interface.
+    ///
+    /// ```no_run
+    /// use std::net::TcpStream;
+    /// use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
+    /// use boomnet::stream::BindAndConnect;
+    ///
+    /// let inet = "eth1".into_network_interface().and_then(|inet| inet.to_socket_addr());
+    /// let stream = TcpStream::bind_and_connect("stream.binance.com", inet, None).unwrap();
+    /// ```
+    ///
+    /// Set `SO_INCOMING_CPU` affinity.
+    ///
+    /// ```no_run
+    /// use std::net::TcpStream;
+    /// use boomnet::stream::BindAndConnect;
+    ///
+    /// let stream = TcpStream::bind_and_connect("stream.binance.com", None, Some(2)).unwrap();
+    /// ```
+    ///
+    /// Use `socket_config` to enable additional socket options.
+    ///
+    /// ```no_run
+    /// use std::net::TcpStream;
+    /// use boomnet::stream::BindAndConnect;
+    ///
+    /// let stream = TcpStream::bind_and_connect_with_socket_config("stream.binance.com", None, Some(2), |socket| {
+    ///     socket.set_reuse_address(true)?;
+    ///     Ok(())
+    /// }).unwrap();
+    /// ```
+    ///
+    fn bind_and_connect_with_socket_config<A, F>(
+        addr: A,
+        net_iface: Option<SocketAddr>,
+        cpu: Option<usize>,
+        socket_config: F,
+    ) -> io::Result<TcpStream>
+    where
+        A: ToSocketAddrs,
+        F: FnOnce(&Socket) -> io::Result<()>;
 }
 
 impl BindAndConnect for TcpStream {
     #[allow(unused_variables)]
-    fn bind_and_connect<A>(addr: A, net_iface: Option<SocketAddr>, cpu: Option<usize>) -> io::Result<TcpStream>
+    fn bind_and_connect_with_socket_config<A, F>(
+        addr: A,
+        net_iface: Option<SocketAddr>,
+        cpu: Option<usize>,
+        socket_config: F,
+    ) -> io::Result<TcpStream>
     where
         A: ToSocketAddrs,
+        F: FnOnce(&Socket) -> io::Result<()>,
     {
         // create a socket but do not connect yet
         let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
         socket.set_nonblocking(true)?;
         socket.set_nodelay(true)?;
+        socket.set_keepalive(true)?;
+
+        // apply custom options
+        socket_config(&socket)?;
 
         // optionally bind to a specific network interface
         if let Some(addr) = net_iface {

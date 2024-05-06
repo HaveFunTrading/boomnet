@@ -33,7 +33,7 @@ socket2 = { version = "0.5.5", features = ["all"] }
 pnet = "0.34.0"
 idle = "0.2.0"
 mio = { version = "0.8.10", features = ["net", "os-poll"], optional = true }
-rustls = { version = "0.22.1", optional = true }
+rustls = { version = "0.22.4", optional = true }
 rand = { version = "0.8.5", optional = true }
 base64 = { version = "0.21.5", optional = true }
 httparse = { version = "1.8.0", optional = true }

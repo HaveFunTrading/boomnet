@@ -26,12 +26,6 @@ enum MarketDataEndpoint {
     Ticker(TickerEndpoint),
 }
 
-impl Default for MarketDataEndpoint {
-    fn default() -> Self {
-        Self::Trade(TradeEndpoint::default())
-    }
-}
-
 impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
     type Stream = MioStream;
 
@@ -61,7 +55,6 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
     }
 }
 
-#[derive(Default)]
 struct TradeEndpoint {
     id: u32,
     url: &'static str,
@@ -112,7 +105,6 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 }
 
-#[derive(Default)]
 struct TickerEndpoint {
     id: u32,
     url: &'static str,

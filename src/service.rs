@@ -1,10 +1,10 @@
 //! Service to manage multiple endpoint lifecycle.
 
 use std::collections::{HashMap, VecDeque};
+use std::io;
 use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
-use std::{io, mem};
 
 use idle::IdleStrategy;
 use log::{error, warn};
@@ -88,7 +88,7 @@ impl<S: Selector, E, C> IOService<S, E, C> {
 impl<S, E> IOService<S, E, ()>
 where
     S: Selector,
-    E: Endpoint<Target = S::Target> + Default,
+    E: Endpoint<Target = S::Target>,
 {
     /// This method polls all registered endpoints for readiness and performs I/O operations based
     /// on the ['Selector'] poll results. It then iterates through all endpoints, either
@@ -120,12 +120,10 @@ where
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
-                    return if io_node.endpoint.can_auto_disconnect() {
+                    return if io_node.as_endpoint_mut().can_auto_disconnect() {
                         warn!("endpoint auto disconnected after {:?}", self.auto_disconnect.unwrap());
                         self.selector.unregister(io_node).unwrap();
-                        // we need to transfer the ownership
-                        // the original io_node will be dropped anyway
-                        let mut endpoint = mem::take(&mut io_node.endpoint);
+                        let mut endpoint = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
                             self.pending_endpoints.push_back(endpoint);
                         } else {
@@ -148,9 +146,7 @@ where
             if let Err(err) = endpoint.poll(stream) {
                 error!("error when polling endpoint: {}", err);
                 self.selector.unregister(io_node).unwrap();
-                // we need to transfer the ownership
-                // the original io_node will be dropped anyway
-                let mut endpoint = mem::take(&mut io_node.endpoint);
+                let mut endpoint = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate() {
                     self.pending_endpoints.push_back(endpoint);
                 } else {
@@ -171,7 +167,7 @@ impl<S, E, C> IOService<S, E, C>
 where
     S: Selector,
     C: Context,
-    E: EndpointWithContext<C, Target = S::Target> + Default,
+    E: EndpointWithContext<C, Target = S::Target>,
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
     /// on the `SelectService` poll results. It then iterates through all endpoints, either
@@ -203,12 +199,10 @@ where
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
-                    return if io_node.endpoint.can_auto_disconnect(context) {
+                    return if io_node.as_endpoint_mut().can_auto_disconnect(context) {
                         warn!("endpoint auto disconnected after {:?}", self.auto_disconnect.unwrap());
                         self.selector.unregister(io_node).unwrap();
-                        // we need to transfer the ownership
-                        // the original io_node will be dropped anyway
-                        let mut endpoint = mem::take(&mut io_node.endpoint);
+                        let mut endpoint = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {
                             self.pending_endpoints.push_back(endpoint);
                         } else {
@@ -231,9 +225,7 @@ where
             if let Err(err) = endpoint.poll(stream, context) {
                 error!("error when polling endpoint: {}", err);
                 self.selector.unregister(io_node).unwrap();
-                // we need to transfer the ownership
-                // the original io_node will be dropped anyway
-                let mut endpoint = mem::take(&mut io_node.endpoint);
+                let mut endpoint = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(context) {
                     self.pending_endpoints.push_back(endpoint);
                 } else {

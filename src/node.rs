@@ -4,7 +4,7 @@ use crate::util::current_time_nanos;
 
 pub struct IONode<S, E> {
     pub stream: S,
-    pub endpoint: E,
+    pub endpoint: Option<E>,
     pub disconnect_time_ns: u64,
 }
 
@@ -16,20 +16,22 @@ impl<S, E> IONode<S, E> {
         };
         Self {
             stream,
-            endpoint,
+            endpoint: Some(endpoint),
             disconnect_time_ns,
         }
     }
 
     pub fn as_parts(&self) -> (&S, &E) {
-        (&self.stream, &self.endpoint)
+        // SAFETY: safe to call as endpoint will never be None
+        unsafe { (&self.stream, self.endpoint.as_ref().unwrap_unchecked()) }
     }
 
     pub fn as_parts_mut(&mut self) -> (&mut S, &mut E) {
-        (&mut self.stream, &mut self.endpoint)
+        // SAFETY: safe to call as endpoint will never be None
+        unsafe { (&mut self.stream, self.endpoint.as_mut().unwrap_unchecked()) }
     }
 
-    pub fn as_stream(&mut self) -> &S {
+    pub const fn as_stream(&self) -> &S {
         &self.stream
     }
 
@@ -38,10 +40,12 @@ impl<S, E> IONode<S, E> {
     }
 
     pub fn as_endpoint(&self) -> &E {
-        &self.endpoint
+        // SAFETY: safe to call as endpoint will never be None
+        unsafe { self.endpoint.as_ref().unwrap_unchecked() }
     }
 
     pub fn as_endpoint_mut(&mut self) -> &mut E {
-        &mut self.endpoint
+        // SAFETY: safe to call as endpoint will never be None
+        unsafe { self.endpoint.as_mut().unwrap_unchecked() }
     }
 }

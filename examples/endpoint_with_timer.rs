@@ -18,7 +18,6 @@ use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 /// poll method is called on every cycle by the io service we can implement timer functionality
 /// directly inside the endpoint. In this case, the endpoint will keep disconnecting every 10s.
 
-#[derive(Default)]
 struct TradeEndpoint {
     url: &'static str,
     net_iface: Option<SocketAddr>,

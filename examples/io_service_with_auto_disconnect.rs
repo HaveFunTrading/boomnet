@@ -1,7 +1,8 @@
-use idle::IdleStrategy;
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
+
+use idle::IdleStrategy;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
@@ -11,7 +12,6 @@ use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::BindAndConnect;
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
-#[derive(Default)]
 struct TradeEndpoint {
     id: u32,
     url: String,

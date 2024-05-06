@@ -10,7 +10,6 @@ use boomnet::service::IntoIOService;
 use boomnet::stream::BindAndConnect;
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
-#[derive(Default)]
 struct TradeEndpoint {
     id: u32,
     url: &'static str,

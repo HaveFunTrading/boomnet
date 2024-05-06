@@ -45,9 +45,6 @@ impl TradeEndpoint {
 }
 
 #[derive(Debug)]
-struct Aeron;
-
-#[derive(Debug)]
 struct FeedContext;
 
 impl Context for FeedContext {}

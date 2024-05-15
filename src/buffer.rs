@@ -26,8 +26,8 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> Default for ReadBuf
 impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
     pub fn new() -> ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
         assert!(
-            CHUNK_SIZE <= DEFAULT_INITIAL_CAPACITY,
-            "CHUNK_SIZE ({CHUNK_SIZE}) must be less or equal than {DEFAULT_INITIAL_CAPACITY}"
+            CHUNK_SIZE <= INITIAL_CAPACITY,
+            "CHUNK_SIZE ({CHUNK_SIZE}) must be less or equal than {INITIAL_CAPACITY}"
         );
         Self {
             inner: vec![0u8; INITIAL_CAPACITY],

@@ -90,7 +90,6 @@ that we can use.
 
 ```rust
 
-#[derive(Default)]
 struct TradeEndpoint {
     id: u32,
     url: &'static str,
@@ -212,14 +211,18 @@ BoomNet feature set is modular, allowing for tailored functionality based on pro
 all available features, while individual components can be enabled as needed.
 
 * [mio](#mio)
-* [tls](#tls)
+* [tls-native](#tls-native)
+* [tls-webpki](#tls-webpki)
 * [ws](#ws)
 
 ### `mio`
 Adds dependency on `mio` crate and enables `MioSelector` and `MioStream`.
 
-### `tls`
-Adds dependency on `rustls` crate and enables `TlsStream` and more flexible `TlsReadyStream`.
+### `tls-native`
+Adds dependency on `rustls` crate with `rustls-native-certs` and enables `TlsStream` as well as more flexible `TlsReadyStream`.
+
+### `tls-webpki`
+Adds dependency on `rustls` crate with `webpki-roots` and enables `TlsStream` as well as more flexible `TlsReadyStream`.
 
 ### `ws`
 Adds support for `Websocket` protocol.

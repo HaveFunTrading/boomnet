@@ -267,11 +267,11 @@ where
     }
 }
 
-impl<'a, S> Websocket<S>
+impl<S> Websocket<S>
 where
     S: Read + Write,
 {
-    pub fn new(mut stream: S, url: &'a str) -> io::Result<Self> {
+    pub fn new(mut stream: S, url: &str) -> io::Result<Self> {
         let mut handshaker = Handshaker::new();
         handshaker.send_handshake_request(&mut stream, url)?;
 

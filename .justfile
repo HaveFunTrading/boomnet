@@ -11,19 +11,22 @@ init:
 check:
     cargo check
     cargo fmt --all -- --check
-    cargo clippy --all-targets
+    cargo clippy --all-targets --features "full"
 
 # fix code
 fix:
     cargo fmt --all
-    cargo clippy --allow-dirty --fix
+    cargo clippy --allow-dirty --fix --features "full"
 
 # build project
 build:
-    cargo build --all-targets
+    cargo build --features "full"
 
 # execute tests
 test:
-    cargo test
+    cargo test --features "full"
 
+# execute benchmarks
+bench:
+    cargo bench --features "full"
 

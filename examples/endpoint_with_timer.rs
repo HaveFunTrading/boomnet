@@ -17,7 +17,6 @@ use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 /// This example demonstrates how to implement explicit timer inside the endpoint. Since endpoint
 /// poll method is called on every cycle by the io service we can implement timer functionality
 /// directly inside the endpoint. In this case, the endpoint will keep disconnecting every 10s.
-
 struct TradeEndpoint {
     url: &'static str,
     net_iface: Option<SocketAddr>,

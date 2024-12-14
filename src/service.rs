@@ -63,13 +63,8 @@ impl<S: Selector, E, C> IOService<S, E, C> {
     /// Specify TTL for each [`Endpoint`] connection.
     pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C> {
         Self {
-            selector: self.selector,
-            pending_endpoints: self.pending_endpoints,
-            io_nodes: self.io_nodes,
-            idle_strategy: self.idle_strategy,
-            next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
-            context: self.context,
             auto_disconnect: Some(auto_disconnect),
+            ..self
         }
     }
 
@@ -235,6 +230,8 @@ where
             }
             true
         });
+
+        self.idle_strategy.idle(0);
 
         Ok(())
     }

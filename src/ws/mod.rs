@@ -4,7 +4,7 @@ use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::{io, mem};
-
+use std::collections::VecDeque;
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
 use thiserror::Error;
@@ -59,6 +59,7 @@ pub struct Websocket<S> {
     closed: bool,
     pending_pong: bool,
     pong_payload: Vec<u8>,
+    pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
 }
 
 impl<S> Websocket<S> {
@@ -116,7 +117,14 @@ impl<S: Read + Write> Websocket<S> {
     #[inline(never)]
     fn perform_handshake(&mut self) -> Result<Option<WebsocketFrame>, Error> {
         match self.handshaker.await_handshake(&mut self.stream) {
-            Ok(()) => Ok(None),
+            Ok(()) => {
+                // drain pending message buffer
+                while let Some((op, fin, body)) = self.pending_msg_buffer.pop_front() {
+                    let body = body.as_ref().map(|body| body.as_slice());
+                    self.send(fin, op, body)?;
+                }
+                Ok(None)
+            },
             Err(err) if err.kind() == WouldBlock => Ok(None),
             Err(err) => {
                 self.closed = true;
@@ -147,13 +155,28 @@ impl<S: Read + Write> Websocket<S> {
 
     #[inline]
     pub fn send_text(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
+        if !self.handshake_complete() {
+            self.buffer_message(fin, protocol::op::TEXT_FRAME, body);
+        }
         self.send(fin, protocol::op::TEXT_FRAME, body)
+    }
+
+    #[cold]
+    fn buffer_message(&mut self, fin: bool, op: u8, body: Option<&[u8]>) {
+        let body = body.map(|body| body.to_vec());
+        self.pending_msg_buffer.push_back((op, fin, body))
     }
 
     #[inline]
     fn needs_to_send_pong(&self) -> bool {
         self.pending_pong
     }
+
+    #[inline]
+    pub const fn handshake_complete(&self) -> bool {
+        matches!(self.handshaker.state(), HandshakeState::Completed)
+    }
+
 
     #[cold]
     #[inline(never)]
@@ -282,6 +305,7 @@ where
             closed: false,
             pending_pong: false,
             pong_payload: Vec::with_capacity(4096),
+            pending_msg_buffer: VecDeque::with_capacity(256),
         })
     }
 }

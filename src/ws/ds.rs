@@ -1,6 +1,7 @@
 use crate::ws::decoder::Decoder;
 use crate::ws::handshake::Handshaker;
 use crate::ws::{Error, Websocket, WebsocketFrame};
+use std::collections::VecDeque;
 use std::io;
 
 pub trait DataSource {
@@ -33,6 +34,7 @@ impl<D: DataSource> Websocket<D> {
             closed: false,
             pending_pong: false,
             pong_payload: Vec::with_capacity(4096),
+            pending_msg_buffer: VecDeque::with_capacity(256),
         })
     }
 }

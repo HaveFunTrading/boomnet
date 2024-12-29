@@ -1,12 +1,12 @@
 //! Websocket protocol.
 
+#[cfg(feature = "mio")]
+use mio::{event::Source, Interest, Registry, Token};
+use std::collections::VecDeque;
 use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::{io, mem};
-
-#[cfg(feature = "mio")]
-use mio::{event::Source, Interest, Registry, Token};
 use thiserror::Error;
 use url::Url;
 
@@ -59,13 +59,19 @@ pub struct Websocket<S> {
     closed: bool,
     pending_pong: bool,
     pong_payload: Vec<u8>,
+    pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
 }
 
 impl<S> Websocket<S> {
-    pub fn closed(&self) -> bool {
+    /// Checks if the websocket is closed. THis can be result of an IO error or the other side
+    /// sending `WebsocketFrame::Closed`.
+    pub const fn closed(&self) -> bool {
         self.closed
     }
 
+    /// Checks if the handshake has completed successfully. If attempt is made to send a message
+    /// while the handshake is pending the message will be buffered and dispatched once handshake
+    /// has finished.
     pub const fn handshake_complete(&self) -> bool {
         matches!(self.handshaker.state(), HandshakeState::Completed)
     }
@@ -101,11 +107,26 @@ impl<S: Selectable> Selectable for Websocket<S> {
 }
 
 impl<S: Read + Write> Websocket<S> {
+    pub fn new(mut stream: S, url: &str) -> io::Result<Self> {
+        let mut handshaker = Handshaker::new();
+        handshaker.send_handshake_request(&mut stream, url)?;
+
+        Ok(Self {
+            stream,
+            handshaker,
+            frame: Decoder::new(),
+            closed: false,
+            pending_pong: false,
+            pong_payload: Vec::with_capacity(4096),
+            pending_msg_buffer: VecDeque::with_capacity(256),
+        })
+    }
+
     pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
         self.ensure_not_closed()?;
 
         // check if we have any pending pong to send
-        if self.needs_to_send_pong() {
+        if self.pending_pong {
             self.process_pending_pong()?;
         }
 
@@ -117,10 +138,15 @@ impl<S: Read + Write> Websocket<S> {
     }
 
     #[cold]
-    #[inline(never)]
     fn perform_handshake(&mut self) -> Result<Option<WebsocketFrame>, Error> {
         match self.handshaker.await_handshake(&mut self.stream) {
-            Ok(()) => Ok(None),
+            Ok(()) => {
+                // drain pending message buffer
+                while let Some((op, fin, body)) = self.pending_msg_buffer.pop_front() {
+                    self.send(fin, op, body.as_deref())?;
+                }
+                Ok(None)
+            }
             Err(err) if err.kind() == WouldBlock => Ok(None),
             Err(err) => {
                 self.closed = true;
@@ -151,29 +177,32 @@ impl<S: Read + Write> Websocket<S> {
 
     #[inline]
     pub fn send_text(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
+        if !self.handshake_complete() {
+            self.buffer_message(fin, protocol::op::TEXT_FRAME, body);
+        }
         self.send(fin, protocol::op::TEXT_FRAME, body)
     }
 
-    #[inline]
-    fn needs_to_send_pong(&self) -> bool {
-        self.pending_pong
+    #[cold]
+    fn buffer_message(&mut self, fin: bool, op: u8, body: Option<&[u8]>) {
+        let body = body.map(|body| body.to_vec());
+        self.pending_msg_buffer.push_back((op, fin, body))
     }
 
     #[cold]
     #[inline(never)]
     fn process_pending_pong(&mut self) -> Result<(), Error> {
-        let mut pong_payload = mem::take(&mut self.pong_payload);
-        let res = self.send_pong(Some(pong_payload.as_slice()));
-        pong_payload.clear();
-        let _ = mem::replace(&mut self.pong_payload, pong_payload);
+        let pong_payload = mem::take(&mut self.pong_payload);
         self.pending_pong = false;
-        res
+        self.send_pong(Some(pong_payload.as_slice()))
     }
 
+    #[inline]
     fn send_pong(&mut self, payload: Option<&[u8]>) -> Result<(), Error> {
         self.send(true, protocol::op::PONG, payload)
     }
 
+    #[inline]
     fn send(&mut self, fin: bool, op_code: u8, body: Option<&[u8]>) -> Result<(), Error> {
         self.ensure_not_closed()?;
         match encoder::send(&mut self.stream, fin, op_code, body) {
@@ -186,10 +215,10 @@ impl<S: Read + Write> Websocket<S> {
     }
 
     #[inline]
-    fn ensure_not_closed(&self) -> Result<(), Error> {
+    const fn ensure_not_closed(&self) -> Result<(), Error> {
         #[cold]
         #[inline(never)]
-        fn signal_closed() -> Result<(), Error> {
+        const fn signal_closed() -> Result<(), Error> {
             Err(Closed)
         }
 
@@ -268,24 +297,5 @@ where
         }?;
 
         Websocket::new(tls_ready_stream, self.as_ref())
-    }
-}
-
-impl<S> Websocket<S>
-where
-    S: Read + Write,
-{
-    pub fn new(mut stream: S, url: &str) -> io::Result<Self> {
-        let mut handshaker = Handshaker::new();
-        handshaker.send_handshake_request(&mut stream, url)?;
-
-        Ok(Self {
-            stream,
-            handshaker,
-            frame: Decoder::new(),
-            closed: false,
-            pending_pong: false,
-            pong_payload: Vec::with_capacity(4096),
-        })
     }
 }

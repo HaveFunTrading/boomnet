@@ -2,7 +2,7 @@ use std::net::TcpStream;
 
 use ::tungstenite::{connect, Message};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use url::Url;
+use tungstenite::Utf8Bytes;
 
 use ::boomnet::stream::buffer::IntoBufferedStream;
 use ::boomnet::ws::IntoWebsocket;
@@ -48,11 +48,11 @@ fn tungstenite_rtt_benchmark(c: &mut Criterion) {
     server::start_on_thread(9001);
 
     // setup client
-    let (mut ws, _) = connect(Url::parse("ws://127.0.0.1:9001").unwrap()).unwrap();
+    let (mut ws, _) = connect("ws://127.0.0.1:9001").unwrap();
 
     group.bench_function("tungstenite_rtt", |b| {
         b.iter(|| {
-            ws.write(Message::Text(MSG.to_owned())).unwrap();
+            ws.write(Message::Text(Utf8Bytes::from_static(MSG))).unwrap();
             ws.flush().unwrap();
             if let Message::Text(data) = ws.read().unwrap() {
                 black_box(data);

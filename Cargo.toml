@@ -51,7 +51,7 @@ optional = true
 anyhow = "1"
 env_logger = "0.10.1"
 ansi_term = "0.12.1"
-tungstenite = "0.21.0"
+tungstenite = "0.26.1"
 criterion = "0.5.1"
 
 [lints.clippy]
@@ -63,6 +63,8 @@ dead_code = "warn"
 
 [profile.release]
 debug = true
+lto = true
+codegen-units = 1
 
 [[bench]]
 name = "latency"

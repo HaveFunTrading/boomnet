@@ -65,6 +65,10 @@ impl<S> Websocket<S> {
     pub fn closed(&self) -> bool {
         self.closed
     }
+
+    pub const fn handshake_complete(&self) -> bool {
+        matches!(self.handshaker.state(), HandshakeState::Completed)
+    }
 }
 
 #[cfg(feature = "mio")]

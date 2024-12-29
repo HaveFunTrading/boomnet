@@ -66,7 +66,7 @@ impl<S> Websocket<S> {
         self.closed
     }
 
-    pub fn handshake_complete(&self) -> bool {
+    pub const fn handshake_complete(&self) -> bool {
         matches!(self.handshaker.state(), HandshakeState::Completed)
     }
 }

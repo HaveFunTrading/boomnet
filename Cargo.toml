@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.27"
+version = "0.0.28"
 edition = "2021"
 license = "MIT"
 description = "Framework for building low latency websocket client based applications."

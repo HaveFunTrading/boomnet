@@ -37,6 +37,14 @@ impl Handshaker {
         })
     }
 
+    pub(crate) fn completed() -> Result<Self, Error> {
+        Ok(Self {
+            buffer: ReadBuffer::new(),
+            state: Completed,
+            url: Url::parse("ws://localhost:3012")?, // does not matter
+        })
+    }
+
     pub(crate) const fn state(&self) -> HandshakeState {
         self.state
     }

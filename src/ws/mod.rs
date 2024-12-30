@@ -3,10 +3,10 @@
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
 use std::collections::VecDeque;
+use std::io;
 use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::{io, mem};
 use thiserror::Error;
 use url::{ParseError, Url};
 
@@ -59,8 +59,6 @@ pub struct Websocket<S> {
     handshaker: Handshaker,
     frame: Decoder,
     closed: bool,
-    pending_pong: bool,
-    pong_payload: Vec<u8>,
     pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
 }
 
@@ -116,20 +114,12 @@ impl<S: Read + Write> Websocket<S> {
             handshaker: Handshaker::new(url)?,
             frame: Decoder::new(),
             closed: false,
-            pending_pong: false,
-            pong_payload: Vec::with_capacity(4096),
             pending_msg_buffer: VecDeque::with_capacity(256),
         })
     }
 
     pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
         self.ensure_not_closed()?;
-
-        // check if we have any pending pong to send
-        if self.pending_pong {
-            self.process_pending_pong()?;
-        }
-
         match self.handshaker.state() {
             HandshakeState::NotStarted => self.initiate_handshake(),
             HandshakeState::Pending => self.perform_handshake(),
@@ -165,8 +155,7 @@ impl<S: Read + Write> Websocket<S> {
     fn decode_next_frame(&mut self) -> Result<Option<WebsocketFrame>, Error> {
         match self.frame.decode_next(&mut self.stream) {
             Ok(Some(WebsocketFrame::Ping(_, payload))) => {
-                self.pong_payload.extend_from_slice(payload);
-                self.pending_pong = true;
+                self.send_pong(Some(payload))?;
                 Ok(None)
             }
             Ok(Some(WebsocketFrame::Close(_, payload))) => {
@@ -206,14 +195,6 @@ impl<S: Read + Write> Websocket<S> {
     fn buffer_message(&mut self, fin: bool, op: u8, body: Option<&[u8]>) {
         let body = body.map(|body| body.to_vec());
         self.pending_msg_buffer.push_back((op, fin, body))
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn process_pending_pong(&mut self) -> Result<(), Error> {
-        let pong_payload = mem::take(&mut self.pong_payload);
-        self.pending_pong = false;
-        self.send_pong(Some(pong_payload.as_slice()))
     }
 
     #[inline]

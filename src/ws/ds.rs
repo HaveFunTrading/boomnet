@@ -29,11 +29,9 @@ impl<D: DataSource> Websocket<D> {
     pub fn from_data_source(data_source: D) -> io::Result<Websocket<DataSourceStream<D>>> {
         Ok(Websocket {
             stream: data_source.into_stream(),
-            handshaker: Handshaker::new("")?,
+            handshaker: Handshaker::completed()?,
             frame: Decoder::new(),
             closed: false,
-            pending_pong: false,
-            pong_payload: Vec::with_capacity(4096),
             pending_msg_buffer: VecDeque::with_capacity(256),
         })
     }

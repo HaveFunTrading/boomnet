@@ -11,11 +11,13 @@ use url::Url;
 
 use crate::buffer::ReadBuffer;
 use crate::ws::handshake::HandshakeState::{Completed, NotStarted, Pending};
+use crate::ws::Error;
 
 #[derive(Debug)]
 pub(crate) struct Handshaker {
     buffer: ReadBuffer<1>,
     state: HandshakeState,
+    url: Url,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -26,11 +28,13 @@ pub(crate) enum HandshakeState {
 }
 
 impl Handshaker {
-    pub(crate) fn new() -> Self {
-        Self {
+    pub(crate) fn new(url: &str) -> Result<Self, Error> {
+        let url = Url::parse(url)?;
+        Ok(Self {
             buffer: ReadBuffer::new(),
             state: NotStarted,
-        }
+            url,
+        })
     }
 
     pub(crate) const fn state(&self) -> HandshakeState {
@@ -54,6 +58,7 @@ impl Handshaker {
                         return Err(io::Error::new(Other, "unable to switch protocols"));
                     }
                     self.state = Completed;
+                    return Ok(());
                 }
                 Err(io::Error::from(WouldBlock))
             }
@@ -61,10 +66,9 @@ impl Handshaker {
         }
     }
 
-    pub(crate) fn send_handshake_request<S: Write>(&mut self, stream: &mut S, url: &str) -> io::Result<()> {
-        let url = Url::parse(url).unwrap();
-        stream.write_all(format!("GET {} HTTP/1.1\r\n", url.path()).as_bytes())?;
-        stream.write_all(format!("Host: {}\r\n", url.host_str().unwrap()).as_bytes())?;
+    pub(crate) fn send_handshake_request<S: Write>(&mut self, stream: &mut S) -> io::Result<()> {
+        stream.write_all(format!("GET {} HTTP/1.1\r\n", self.url.path()).as_bytes())?;
+        stream.write_all(format!("Host: {}\r\n", self.url.host_str().unwrap()).as_bytes())?;
         stream.write_all(b"Upgrade: websocket\r\n")?;
         stream.write_all(b"Connection: upgrade\r\n")?;
         stream.write_all(format!("Sec-WebSocket-Key: {}\r\n", generate_nonce()).as_bytes())?;

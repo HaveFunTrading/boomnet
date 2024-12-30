@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::{io, mem};
 use thiserror::Error;
-use url::Url;
+use url::{ParseError, Url};
 
 use crate::buffer;
 use crate::select::Selectable;
@@ -34,6 +34,8 @@ pub enum Error {
     Closed,
     #[error("IO error: {0}")]
     IO(#[from] io::Error),
+    #[error("url parse error: {0}")]
+    UrlParse(#[from] ParseError),
 }
 
 impl From<Error> for io::Error {
@@ -72,6 +74,7 @@ impl<S> Websocket<S> {
     /// Checks if the handshake has completed successfully. If attempt is made to send a message
     /// while the handshake is pending the message will be buffered and dispatched once handshake
     /// has finished.
+    #[inline]
     pub const fn handshake_complete(&self) -> bool {
         matches!(self.handshaker.state(), HandshakeState::Completed)
     }
@@ -107,13 +110,10 @@ impl<S: Selectable> Selectable for Websocket<S> {
 }
 
 impl<S: Read + Write> Websocket<S> {
-    pub fn new(mut stream: S, url: &str) -> io::Result<Self> {
-        let mut handshaker = Handshaker::new();
-        handshaker.send_handshake_request(&mut stream, url)?;
-
+    pub fn new(stream: S, url: &str) -> io::Result<Self> {
         Ok(Self {
             stream,
-            handshaker,
+            handshaker: Handshaker::new(url)?,
             frame: Decoder::new(),
             closed: false,
             pending_pong: false,
@@ -131,10 +131,16 @@ impl<S: Read + Write> Websocket<S> {
         }
 
         match self.handshaker.state() {
-            HandshakeState::NotStarted => panic!("websocket handshake not started"),
+            HandshakeState::NotStarted => self.initiate_handshake(),
             HandshakeState::Pending => self.perform_handshake(),
             HandshakeState::Completed => self.decode_next_frame(),
         }
+    }
+
+    #[cold]
+    fn initiate_handshake(&mut self) -> Result<Option<WebsocketFrame>, Error> {
+        self.handshaker.send_handshake_request(&mut self.stream)?;
+        Ok(None)
     }
 
     #[cold]
@@ -177,13 +183,26 @@ impl<S: Read + Write> Websocket<S> {
 
     #[inline]
     pub fn send_text(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
-        if !self.handshake_complete() {
+        if self.handshake_complete() {
+            self.send(fin, protocol::op::TEXT_FRAME, body)?;
+        } else {
             self.buffer_message(fin, protocol::op::TEXT_FRAME, body);
         }
-        self.send(fin, protocol::op::TEXT_FRAME, body)
+        Ok(())
+    }
+
+    #[inline]
+    pub fn send_binary(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
+        if self.handshake_complete() {
+            self.send(fin, protocol::op::BINARY_FRAME, body)?;
+        } else {
+            self.buffer_message(fin, protocol::op::BINARY_FRAME, body);
+        }
+        Ok(())
     }
 
     #[cold]
+    #[inline(never)]
     fn buffer_message(&mut self, fin: bool, op: u8, body: Option<&[u8]>) {
         let body = body.map(|body| body.to_vec());
         self.pending_msg_buffer.push_back((op, fin, body))

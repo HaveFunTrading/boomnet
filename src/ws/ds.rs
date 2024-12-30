@@ -29,7 +29,7 @@ impl<D: DataSource> Websocket<D> {
     pub fn from_data_source(data_source: D) -> io::Result<Websocket<DataSourceStream<D>>> {
         Ok(Websocket {
             stream: data_source.into_stream(),
-            handshaker: Handshaker::new(),
+            handshaker: Handshaker::new("")?,
             frame: Decoder::new(),
             closed: false,
             pending_pong: false,

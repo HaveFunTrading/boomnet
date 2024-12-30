@@ -81,24 +81,20 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 
     #[inline]
-    pub fn consume_next(&mut self, len: usize) -> &[u8] {
-        #[cfg(not(feature = "disable-checks"))]
+    pub fn consume_next(&mut self, len: usize) -> &'static [u8] {
+        #[inline(never)]
         #[cold]
         fn bounds_violation(head: usize, tail: usize) -> ! {
             panic!("bounds violation: head[{}] > tail[{}]", head, tail)
         }
 
-        let new_head = self.head + len;
-
-        #[cfg(feature = "disable-checks")]
+        // view to return
         let consumed_view = unsafe { &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len) };
-        #[cfg(not(feature = "disable-checks"))]
-        let consumed_view = &self.inner[self.head..new_head];
 
         // update head to the new value
-        self.head = new_head;
+        self.head += len;
 
-        #[cfg(not(feature = "disable-checks"))]
+        // bounds check
         if self.head > self.tail {
             bounds_violation(self.head, self.tail);
         }
@@ -213,7 +209,6 @@ mod tests {
         assert_eq!(DEFAULT_INITIAL_CAPACITY, buf.inner.len());
     }
 
-    #[cfg(not(feature = "disable-checks"))]
     #[test]
     #[should_panic(expected = "bounds violation: head[32] > tail[6]")]
     fn should_panic_if_bounds_violated() {

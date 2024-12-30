@@ -16,7 +16,6 @@ features = ["full"]
 
 [features]
 default = []
-disable-checks = []
 full = ["full-tls-webpki"]
 full-tls-webpki = ["mio", "tls-webpki", "ws"]
 full-tls-native = ["mio", "tls-native", "ws"]

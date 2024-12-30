@@ -42,13 +42,13 @@ impl From<Error> for io::Error {
     }
 }
 
-pub enum WebsocketFrame<'a> {
-    Ping(u64, &'a [u8]),
-    Pong(u64, &'a [u8]),
-    Text(u64, bool, &'a [u8]),
-    Binary(u64, bool, &'a [u8]),
-    Continuation(u64, bool, &'a [u8]),
-    Close(u64, &'a [u8]),
+pub enum WebsocketFrame {
+    Ping(u64, &'static [u8]),
+    Pong(u64, &'static [u8]),
+    Text(u64, bool, &'static [u8]),
+    Binary(u64, bool, &'static [u8]),
+    Continuation(u64, bool, &'static [u8]),
+    Close(u64, &'static [u8]),
 }
 
 #[derive(Debug)]

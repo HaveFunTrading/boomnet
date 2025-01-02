@@ -2,6 +2,7 @@
 
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
+use std::array::TryFromSliceError;
 use std::io;
 use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
@@ -27,14 +28,16 @@ type ReadBuffer = buffer::ReadBuffer<4096>;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("the peer has sent the close frame: {0}")]
-    ReceivedCloseFrame(String),
+    #[error("the peer has sent the close frame: status code {0}, body: {1}")]
+    ReceivedCloseFrame(u16, String),
     #[error("the websocket is closed and can be dropped")]
     Closed,
     #[error("IO error: {0}")]
     IO(#[from] io::Error),
     #[error("url parse error: {0}")]
-    UrlParse(#[from] ParseError),
+    InvalidUrl(#[from] ParseError),
+    #[error("slice error: {0}")]
+    SliceError(#[from] TryFromSliceError),
 }
 
 impl From<Error> for io::Error {
@@ -210,9 +213,11 @@ impl State {
                     Ok(None)
                 }
                 Ok(Some(WebsocketFrame::Close(_, payload))) => {
-                    // TODO respond with send close frame
-                    // TODO extract status code
-                    Err(ReceivedCloseFrame(String::from_utf8_lossy(payload).to_string()))
+                    let _ = self.send(stream, true, protocol::op::CONNECTION_CLOSE, Some(payload));
+                    let (status_code, body) = payload.split_at(size_of::<u16>());
+                    let status_code = u16::from_be_bytes(status_code.try_into()?);
+                    let body = String::from_utf8_lossy(body).to_string();
+                    Err(ReceivedCloseFrame(status_code, body))
                 }
                 Ok(frame) => Ok(frame),
                 Err(err) if err.kind() == WouldBlock => Ok(None),

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io;
 use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
@@ -14,44 +15,38 @@ use crate::ws::handshake::HandshakeState::{Completed, NotStarted, Pending};
 use crate::ws::Error;
 
 #[derive(Debug)]
-pub(crate) struct Handshaker {
+pub struct Handshaker {
     buffer: ReadBuffer<1>,
     state: HandshakeState,
     url: Url,
+    pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub(crate) enum HandshakeState {
+pub enum HandshakeState {
     NotStarted,
     Pending,
     Completed,
 }
 
 impl Handshaker {
-    pub(crate) fn new(url: &str) -> Result<Self, Error> {
+    pub fn new(url: &str) -> Result<Self, Error> {
         let url = Url::parse(url)?;
         Ok(Self {
             buffer: ReadBuffer::new(),
             state: NotStarted,
             url,
+            pending_msg_buffer: VecDeque::with_capacity(256),
         })
     }
 
-    pub(crate) fn completed() -> Result<Self, Error> {
-        Ok(Self {
-            buffer: ReadBuffer::new(),
-            state: Completed,
-            url: Url::parse("ws://localhost:3012")?, // does not matter
-        })
-    }
-
-    pub(crate) const fn state(&self) -> HandshakeState {
-        self.state
-    }
-
-    pub(crate) fn await_handshake<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+    #[cold]
+    pub fn perform_handshake<S: Read + Write>(&mut self, stream: &mut S) -> io::Result<()> {
         match self.state {
-            NotStarted => panic!("websocket handshake not started"),
+            NotStarted => {
+                self.send_handshake_request(stream)?;
+                Err(io::Error::from(WouldBlock))
+            }
             Pending => {
                 self.buffer.read_from(stream)?;
                 let available = self.buffer.available();
@@ -66,7 +61,6 @@ impl Handshaker {
                         return Err(io::Error::new(Other, "unable to switch protocols"));
                     }
                     self.state = Completed;
-                    return Ok(());
                 }
                 Err(io::Error::from(WouldBlock))
             }
@@ -74,7 +68,24 @@ impl Handshaker {
         }
     }
 
-    pub(crate) fn send_handshake_request<S: Write>(&mut self, stream: &mut S) -> io::Result<()> {
+    #[cold]
+    pub fn buffer_message(&mut self, fin: bool, op: u8, body: Option<&[u8]>) {
+        let body = body.map(|body| body.to_vec());
+        self.pending_msg_buffer.push_back((op, fin, body))
+    }
+
+    pub fn drain_pending_message_buffer<S, F>(&mut self, stream: &mut S, mut send: F) -> Result<(), Error>
+    where
+        S: Write,
+        F: FnMut(&mut S, bool, u8, Option<&[u8]>) -> io::Result<()>,
+    {
+        while let Some((op, fin, body)) = self.pending_msg_buffer.pop_front() {
+            send(stream, fin, op, body.as_deref())?;
+        }
+        Ok(())
+    }
+
+    fn send_handshake_request<S: Write>(&mut self, stream: &mut S) -> io::Result<()> {
         stream.write_all(format!("GET {} HTTP/1.1\r\n", self.url.path()).as_bytes())?;
         stream.write_all(format!("Host: {}\r\n", self.url.host_str().unwrap()).as_bytes())?;
         stream.write_all(b"Upgrade: websocket\r\n")?;

@@ -2,7 +2,6 @@
 
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
-use std::collections::VecDeque;
 use std::io;
 use std::io::ErrorKind::{Other, WouldBlock};
 use std::io::{Read, Write};
@@ -15,7 +14,7 @@ use crate::select::Selectable;
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 use crate::stream::tls::{IntoTlsStream, NotTlsStream, TlsReadyStream, TlsStream};
 use crate::ws::decoder::Decoder;
-use crate::ws::handshake::{HandshakeState, Handshaker};
+use crate::ws::handshake::Handshaker;
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
 
 mod decoder;
@@ -56,14 +55,12 @@ pub enum WebsocketFrame {
 #[derive(Debug)]
 pub struct Websocket<S> {
     stream: S,
-    handshaker: Handshaker,
-    frame: Decoder,
     closed: bool,
-    pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
+    state: State,
 }
 
 impl<S> Websocket<S> {
-    /// Checks if the websocket is closed. THis can be result of an IO error or the other side
+    /// Checks if the websocket is closed. This can be result of an IO error or the other side
     /// sending `WebsocketFrame::Closed`.
     pub const fn closed(&self) -> bool {
         self.closed
@@ -74,7 +71,79 @@ impl<S> Websocket<S> {
     /// has finished.
     #[inline]
     pub const fn handshake_complete(&self) -> bool {
-        matches!(self.handshaker.state(), HandshakeState::Completed)
+        match self.state {
+            State::Handshake(_) => false,
+            State::Connection(_) => true,
+        }
+    }
+}
+
+impl<S: Read + Write> Websocket<S> {
+    pub fn new(stream: S, url: &str) -> io::Result<Self> {
+        Ok(Self {
+            stream,
+            closed: false,
+            state: State::handshake(url)?,
+        })
+    }
+
+    #[inline]
+    pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
+        self.ensure_not_closed()?;
+        match self.state.receive_next(&mut self.stream) {
+            Ok(frame) => Ok(frame),
+            Err(err) => {
+                self.closed = true;
+                Err(err)?
+            }
+        }
+    }
+
+    #[inline]
+    pub fn send_text(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
+        self.send(fin, protocol::op::TEXT_FRAME, body)
+    }
+
+    #[inline]
+    pub fn send_binary(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
+        self.send(fin, protocol::op::BINARY_FRAME, body)
+    }
+
+    #[inline]
+    pub fn send_pong(&mut self, body: Option<&[u8]>) -> Result<(), Error> {
+        self.send(true, protocol::op::PONG, body)
+    }
+
+    #[inline]
+    pub fn send_ping(&mut self, body: Option<&[u8]>) -> Result<(), Error> {
+        self.send(true, protocol::op::PING, body)
+    }
+
+    #[inline]
+    fn send(&mut self, fin: bool, op_code: u8, body: Option<&[u8]>) -> Result<(), Error> {
+        self.ensure_not_closed()?;
+        match self.state.send(&mut self.stream, fin, op_code, body) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                self.closed = true;
+                Err(err)?
+            }
+        }
+    }
+
+    #[inline]
+    const fn ensure_not_closed(&self) -> Result<(), Error> {
+        #[cold]
+        #[inline(never)]
+        const fn signal_closed() -> Result<(), Error> {
+            Err(Closed)
+        }
+
+        if self.closed {
+            return signal_closed();
+        }
+
+        Ok(())
     }
 }
 
@@ -107,126 +176,63 @@ impl<S: Selectable> Selectable for Websocket<S> {
     }
 }
 
-impl<S: Read + Write> Websocket<S> {
-    pub fn new(stream: S, url: &str) -> io::Result<Self> {
-        Ok(Self {
-            stream,
-            handshaker: Handshaker::new(url)?,
-            frame: Decoder::new(),
-            closed: false,
-            pending_msg_buffer: VecDeque::with_capacity(256),
-        })
+#[derive(Debug)]
+enum State {
+    Handshake(Handshaker),
+    Connection(Decoder),
+}
+
+impl State {
+    pub fn handshake(url: &str) -> Result<Self, Error> {
+        Ok(Self::Handshake(Handshaker::new(url)?))
     }
 
-    pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
-        self.ensure_not_closed()?;
-        match self.handshaker.state() {
-            HandshakeState::NotStarted => self.initiate_handshake(),
-            HandshakeState::Pending => self.perform_handshake(),
-            HandshakeState::Completed => self.decode_next_frame(),
-        }
+    pub fn connection() -> Self {
+        Self::Connection(Decoder::new())
     }
+}
 
-    #[cold]
-    fn initiate_handshake(&mut self) -> Result<Option<WebsocketFrame>, Error> {
-        self.handshaker.send_handshake_request(&mut self.stream)?;
-        Ok(None)
-    }
-
-    #[cold]
-    fn perform_handshake(&mut self) -> Result<Option<WebsocketFrame>, Error> {
-        match self.handshaker.await_handshake(&mut self.stream) {
-            Ok(()) => {
-                // drain pending message buffer
-                while let Some((op, fin, body)) = self.pending_msg_buffer.pop_front() {
-                    self.send(fin, op, body.as_deref())?;
+impl State {
+    fn receive_next<S: Read + Write>(&mut self, stream: &mut S) -> Result<Option<WebsocketFrame>, Error> {
+        match self {
+            State::Handshake(handshake) => match handshake.perform_handshake(stream) {
+                Ok(()) => {
+                    handshake.drain_pending_message_buffer(stream, encoder::send)?;
+                    *self = State::connection();
+                    Ok(None)
                 }
-                Ok(None)
-            }
-            Err(err) if err.kind() == WouldBlock => Ok(None),
-            Err(err) => {
-                self.closed = true;
-                Err(err)?
-            }
+                Err(err) if err.kind() == WouldBlock => Ok(None),
+                Err(err) => Err(err)?,
+            },
+            State::Connection(decoder) => match decoder.decode_next(stream) {
+                Ok(Some(WebsocketFrame::Ping(_, payload))) => {
+                    self.send(stream, true, protocol::op::PONG, Some(payload))?;
+                    Ok(None)
+                }
+                Ok(Some(WebsocketFrame::Close(_, payload))) => {
+                    // TODO respond with send close frame
+                    // TODO extract status code
+                    Err(ReceivedCloseFrame(String::from_utf8_lossy(payload).to_string()))
+                }
+                Ok(frame) => Ok(frame),
+                Err(err) if err.kind() == WouldBlock => Ok(None),
+                Err(err) => Err(err)?,
+            },
         }
     }
 
     #[inline]
-    fn decode_next_frame(&mut self) -> Result<Option<WebsocketFrame>, Error> {
-        match self.frame.decode_next(&mut self.stream) {
-            Ok(Some(WebsocketFrame::Ping(_, payload))) => {
-                self.send_pong(Some(payload))?;
-                Ok(None)
+    fn send<S: Write>(&mut self, stream: &mut S, fin: bool, op_code: u8, body: Option<&[u8]>) -> Result<(), Error> {
+        match self {
+            State::Handshake(handshake) => {
+                handshake.buffer_message(fin, op_code, body);
+                Ok(())
             }
-            Ok(Some(WebsocketFrame::Close(_, payload))) => {
-                self.closed = true;
-                Err(ReceivedCloseFrame(String::from_utf8_lossy(payload).to_string()))
-            }
-            Ok(frame) => Ok(frame),
-            Err(err) => {
-                self.closed = true;
-                Err(err)?
+            State::Connection(_) => {
+                encoder::send(stream, fin, op_code, body)?;
+                Ok(())
             }
         }
-    }
-
-    #[inline]
-    pub fn send_text(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
-        if self.handshake_complete() {
-            self.send(fin, protocol::op::TEXT_FRAME, body)?;
-        } else {
-            self.buffer_message(fin, protocol::op::TEXT_FRAME, body);
-        }
-        Ok(())
-    }
-
-    #[inline]
-    pub fn send_binary(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
-        if self.handshake_complete() {
-            self.send(fin, protocol::op::BINARY_FRAME, body)?;
-        } else {
-            self.buffer_message(fin, protocol::op::BINARY_FRAME, body);
-        }
-        Ok(())
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn buffer_message(&mut self, fin: bool, op: u8, body: Option<&[u8]>) {
-        let body = body.map(|body| body.to_vec());
-        self.pending_msg_buffer.push_back((op, fin, body))
-    }
-
-    #[inline]
-    fn send_pong(&mut self, payload: Option<&[u8]>) -> Result<(), Error> {
-        self.send(true, protocol::op::PONG, payload)
-    }
-
-    #[inline]
-    fn send(&mut self, fin: bool, op_code: u8, body: Option<&[u8]>) -> Result<(), Error> {
-        self.ensure_not_closed()?;
-        match encoder::send(&mut self.stream, fin, op_code, body) {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                self.closed = true;
-                Err(err)?
-            }
-        }
-    }
-
-    #[inline]
-    const fn ensure_not_closed(&self) -> Result<(), Error> {
-        #[cold]
-        #[inline(never)]
-        const fn signal_closed() -> Result<(), Error> {
-            Err(Closed)
-        }
-
-        if self.closed {
-            return signal_closed();
-        }
-
-        Ok(())
     }
 }
 

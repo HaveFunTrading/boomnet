@@ -3,7 +3,8 @@ use std::io::Write;
 
 use crate::ws::protocol;
 
-pub(crate) fn send<S: Write>(stream: &mut S, fin: bool, op_code: u8, body: Option<&[u8]>) -> io::Result<()> {
+#[inline]
+pub fn send<S: Write>(stream: &mut S, fin: bool, op_code: u8, body: Option<&[u8]>) -> io::Result<()> {
     let mut header = 0u8;
     if fin {
         header |= protocol::FIN_MASK;

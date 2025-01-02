@@ -5,7 +5,7 @@ use crate::util::current_time_nanos;
 use crate::ws::{protocol, ReadBuffer, WebsocketFrame};
 
 #[derive(Debug)]
-pub(crate) struct Decoder {
+pub struct Decoder {
     buffer: ReadBuffer,
     timestamp_ns: Option<u64>,
     decode_state: DecodeState,
@@ -34,6 +34,8 @@ impl Decoder {
             payload_length: 0,
         }
     }
+
+    #[inline]
     pub fn decode_next<S: Read + Write>(&mut self, stream: &mut S) -> io::Result<Option<WebsocketFrame>> {
         loop {
             let available = self.buffer.available();

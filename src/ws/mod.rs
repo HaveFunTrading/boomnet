@@ -198,7 +198,7 @@ impl State {
                 }
                 Ok(Some(WebsocketFrame::Close(_, payload))) => {
                     let _ = self.send(stream, true, protocol::op::CONNECTION_CLOSE, Some(payload));
-                    let (status_code, body) = payload.split_at(size_of::<u16>());
+                    let (status_code, body) = payload.split_at(std::mem::size_of::<u16>());
                     let status_code = u16::from_be_bytes(status_code.try_into()?);
                     let body = String::from_utf8_lossy(body).to_string();
                     Err(ReceivedCloseFrame(status_code, body))

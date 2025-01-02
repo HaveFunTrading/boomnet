@@ -2,13 +2,12 @@
 
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
-use std::array::TryFromSliceError;
 use std::io;
-use std::io::ErrorKind::{Other, WouldBlock};
+use std::io::ErrorKind::WouldBlock;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use thiserror::Error;
-use url::{ParseError, Url};
+use url::Url;
 
 use crate::buffer;
 use crate::select::Selectable;
@@ -18,33 +17,17 @@ use crate::ws::decoder::Decoder;
 use crate::ws::handshake::Handshaker;
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
 
+// re-export
+pub use crate::ws::error::Error;
+
 mod decoder;
 pub mod ds;
 mod encoder;
+mod error;
 mod handshake;
 mod protocol;
 
 type ReadBuffer = buffer::ReadBuffer<4096>;
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("the peer has sent the close frame: status code {0}, body: {1}")]
-    ReceivedCloseFrame(u16, String),
-    #[error("the websocket is closed and can be dropped")]
-    Closed,
-    #[error("IO error: {0}")]
-    IO(#[from] io::Error),
-    #[error("url parse error: {0}")]
-    InvalidUrl(#[from] ParseError),
-    #[error("slice error: {0}")]
-    SliceError(#[from] TryFromSliceError),
-}
-
-impl From<Error> for io::Error {
-    fn from(value: Error) -> Self {
-        io::Error::new(Other, value)
-    }
-}
 
 pub enum WebsocketFrame {
     Ping(u64, &'static [u8]),
@@ -196,7 +179,6 @@ impl State {
 }
 
 impl State {
-
     #[inline]
     fn receive_next<S: Read + Write>(&mut self, stream: &mut S) -> Result<Option<WebsocketFrame>, Error> {
         match self {

@@ -196,6 +196,8 @@ impl State {
 }
 
 impl State {
+
+    #[inline]
     fn receive_next<S: Read + Write>(&mut self, stream: &mut S) -> Result<Option<WebsocketFrame>, Error> {
         match self {
             State::Handshake(handshake) => match handshake.perform_handshake(stream) {

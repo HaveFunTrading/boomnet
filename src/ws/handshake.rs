@@ -74,6 +74,7 @@ impl Handshaker {
         self.pending_msg_buffer.push_back((op, fin, body))
     }
 
+    #[cold]
     pub fn drain_pending_message_buffer<S, F>(&mut self, stream: &mut S, mut send: F) -> Result<(), Error>
     where
         S: Write,

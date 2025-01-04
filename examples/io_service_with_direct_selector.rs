@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use idle::IdleStrategy;
 use std::io;
 use std::net::{SocketAddr, TcpStream};

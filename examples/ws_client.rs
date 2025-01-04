@@ -20,22 +20,12 @@ fn main() -> anyhow::Result<()> {
 
     let idle = IdleStrategy::Sleep(Duration::from_millis(1));
 
-    'outer: loop {
-        'inner: loop {
-            match ws.receive_next() {
-                Ok(Some(WebsocketFrame::Text(fin, data))) => {
-                    println!("({fin}) {}", String::from_utf8_lossy(data));
-                }
-                Ok(None) => break 'inner,
-                Err(err) => {
-                    println!("{}", err);
-                    break 'outer;
-                }
-                _ => {}
+    loop {
+        for frame in ws.batch_iter()? {
+            if let WebsocketFrame::Text(fin, body) = frame? {
+                println!("({fin}) {}", String::from_utf8_lossy(body));
             }
-            idle.idle(0);
         }
+        idle.idle(0);
     }
-
-    Ok(())
 }

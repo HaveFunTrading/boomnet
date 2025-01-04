@@ -1,8 +1,8 @@
 use std::io;
-use std::io::{Read, Write};
+use std::io::Read;
 
 use crate::util::into_array;
-use crate::ws::{protocol, ReadBuffer, WebsocketFrame};
+use crate::ws::{protocol, Error, ReadBuffer, WebsocketFrame};
 
 #[derive(Debug)]
 pub struct Decoder {
@@ -34,7 +34,12 @@ impl Decoder {
     }
 
     #[inline]
-    pub fn decode_next<S: Read + Write>(&mut self, stream: &mut S) -> io::Result<Option<WebsocketFrame>> {
+    pub fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+        self.buffer.read_from(stream)
+    }
+
+    #[inline]
+    pub fn decode_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
         loop {
             let available = self.buffer.available();
             match self.decode_state {
@@ -115,7 +120,6 @@ impl Decoder {
         }
 
         // await for more data
-        self.buffer.read_from(stream)?;
         Ok(None)
     }
 }

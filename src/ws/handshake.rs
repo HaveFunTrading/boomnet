@@ -41,6 +41,14 @@ impl Handshaker {
     }
 
     #[cold]
+    pub fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+        if self.state == Pending {
+            self.buffer.read_from(stream)?;
+        }
+        Ok(())
+    }
+
+    #[cold]
     pub fn perform_handshake<S: Read + Write>(&mut self, stream: &mut S) -> io::Result<()> {
         match self.state {
             NotStarted => {
@@ -48,7 +56,7 @@ impl Handshaker {
                 Err(io::Error::from(WouldBlock))
             }
             Pending => {
-                self.buffer.read_from(stream)?;
+                // self.buffer.read_from(stream)?;
                 let available = self.buffer.available();
                 if available >= 4 && self.buffer.view_last(4) == b"\r\n\r\n" {
                     // decode http response

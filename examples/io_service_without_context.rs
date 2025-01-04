@@ -54,8 +54,10 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
-            println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data));
+        for frame in ws.batch_iter()? {
+            if let WebsocketFrame::Text(fin, data) = frame? {
+                println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data));
+            }
         }
         Ok(())
     }

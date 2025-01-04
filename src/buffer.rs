@@ -13,6 +13,7 @@ const DEFAULT_INITIAL_CAPACITY: usize = 32768;
 #[derive(Debug)]
 pub struct ReadBuffer<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize = DEFAULT_INITIAL_CAPACITY> {
     inner: Vec<u8>,
+    ptr: *const u8,
     head: usize,
     tail: usize,
 }
@@ -29,8 +30,11 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
             CHUNK_SIZE <= INITIAL_CAPACITY,
             "CHUNK_SIZE ({CHUNK_SIZE}) must be less or equal than {INITIAL_CAPACITY}"
         );
+        let inner = vec![0u8; INITIAL_CAPACITY];
+        let ptr = inner.as_ptr();
         Self {
-            inner: vec![0u8; INITIAL_CAPACITY],
+            inner,
+            ptr,
             head: 0,
             tail: 0,
         }
@@ -81,25 +85,53 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 
     #[inline]
-    pub fn consume_next(&mut self, len: usize) -> &'static [u8] {
-        #[inline(never)]
-        #[cold]
-        fn bounds_violation(head: usize, tail: usize) -> ! {
-            panic!("bounds violation: head[{}] > tail[{}]", head, tail)
+    pub const fn consume_next(&mut self, len: usize) -> Option<&'static [u8]> {
+        match self.available() >= len {
+            true => Some(unsafe { self.consume_next_unchecked(len) }),
+            false => None,
         }
+    }
 
-        // view to return
-        let consumed_view = unsafe { &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len) };
-
-        // update head to the new value
+    /// # Safety
+    /// This function should only be called after `available` bytes are known.
+    /// ```no_run
+    /// use boomnet::buffer::ReadBuffer;
+    /// let mut buffer = ReadBuffer::<4096>::new();
+    /// if buffer.available() > 10 {
+    ///     unsafe {
+    ///         let view = buffer.consume_next_unchecked(10);
+    ///     }
+    /// }
+    #[inline]
+    pub const unsafe fn consume_next_unchecked(&mut self, len: usize) -> &'static [u8] {
+        let consumed_view = &*ptr::slice_from_raw_parts(self.ptr.add(self.head), len);
         self.head += len;
-
-        // bounds check
-        if self.head > self.tail {
-            bounds_violation(self.head, self.tail);
-        }
-
         consumed_view
+    }
+
+    #[inline]
+    pub const fn consume_next_byte(&mut self) -> Option<u8> {
+        match self.available() >= 1 {
+            true => Some(unsafe { self.consume_next_byte_unchecked() }),
+            false => None,
+        }
+    }
+
+    /// # Safety
+    /// This function should only be called after `available` bytes are known.
+    /// ```no_run
+    /// use boomnet::buffer::ReadBuffer;
+    /// let mut buffer = ReadBuffer::<4096>::new();
+    /// if buffer.available() > 0 {
+    ///     unsafe {
+    ///         let byte = buffer.consume_next_byte_unchecked();
+    ///     }
+    /// }
+    #[inline]
+    pub const unsafe fn consume_next_byte_unchecked(&mut self) -> u8 {
+        let byte = *self.ptr.add(self.head);
+        self.head += 1;
+        byte
     }
 
     #[inline]
@@ -133,11 +165,11 @@ mod tests {
         assert_eq!(12, buf.available());
         assert_eq!(b"hello world!", buf.view());
 
-        assert_eq!(b"hello ", buf.consume_next(6));
+        assert_eq!(b"hello ", buf.consume_next(6).unwrap());
         assert_eq!(6, buf.available());
         assert_eq!(b"world!", buf.view());
 
-        assert_eq!(b"world!", buf.consume_next(6));
+        assert_eq!(b"world!", buf.consume_next(6).unwrap());
         assert_eq!(0, buf.available());
         assert_eq!(b"", buf.view());
 
@@ -174,7 +206,7 @@ mod tests {
         buf.read_from(&mut stream).expect("unable to read from the stream");
         assert_eq!(b"hello ", buf.view());
 
-        assert_eq!(b"hello ", buf.consume_next(6));
+        assert_eq!(b"hello ", buf.consume_next(6).unwrap());
         assert_eq!(0, buf.available());
         assert_eq!(b"", buf.view());
 
@@ -196,7 +228,7 @@ mod tests {
         buf.read_from(&mut stream).expect("unable to read from the stream");
         assert_eq!(b"hello ", buf.view());
 
-        assert_eq!(b"he", buf.consume_next(2));
+        assert_eq!(b"he", buf.consume_next(2).unwrap());
         assert_eq!(4, buf.available());
         assert_eq!(b"llo ", buf.view());
 
@@ -210,15 +242,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "bounds violation: head[32] > tail[6]")]
-    fn should_panic_if_bounds_violated() {
+    fn should_return_none_if_too_many_bytes_requested_to_view() {
         let mut buf = ReadBuffer::<6>::new();
         let mut stream = Cursor::new(b"hello world!");
-
         buf.read_from(&mut stream).expect("unable to read from the stream");
-        assert_eq!(b"hello ", buf.view());
 
-        let _ = buf.consume_next(32); // will panic
+        assert_eq!(b"hello ", buf.view());
+        assert_eq!(None, buf.consume_next(7));
     }
 
     #[test]
@@ -279,12 +309,29 @@ mod tests {
     fn should_consume_next() {
         let mut buf = ReadBuffer::<64>::new();
         let mut stream = Cursor::new(b"hello world!");
-
         buf.read_from(&mut stream).expect("unable to read from the stream");
+
         assert_eq!(b"hello world!", buf.view());
-        assert_eq!(b"hello", buf.consume_next(5));
-        assert_eq!(b" ", buf.consume_next(1));
-        assert_eq!(b"world!", buf.consume_next(6));
+        assert_eq!(b"hello", buf.consume_next(5).unwrap());
+        assert_eq!(b" ", buf.consume_next(1).unwrap());
+        assert_eq!(b"world!", buf.consume_next(6).unwrap());
+        assert_eq!(0, buf.available())
+    }
+
+    #[test]
+    fn should_consume_next_byte() {
+        let mut buf = ReadBuffer::<64>::new();
+        let mut stream = Cursor::new(b"hello world!");
+        buf.read_from(&mut stream).expect("unable to read from the stream");
+
+        assert_eq!(b"hello world!", buf.view());
+        assert_eq!(b'h', buf.consume_next_byte().unwrap());
+        assert_eq!(b'e', buf.consume_next_byte().unwrap());
+        assert_eq!(b'l', buf.consume_next_byte().unwrap());
+        assert_eq!(b'l', buf.consume_next_byte().unwrap());
+        assert_eq!(b'o', buf.consume_next_byte().unwrap());
+        assert_eq!(b' ', buf.consume_next_byte().unwrap());
+        assert_eq!(b"world!", buf.consume_next(6).unwrap());
         assert_eq!(0, buf.available())
     }
 
@@ -292,8 +339,8 @@ mod tests {
     fn should_view_last() {
         let mut buf = ReadBuffer::<64>::new();
         let mut stream = Cursor::new(b"hello world!");
-
         buf.read_from(&mut stream).expect("unable to read from the stream");
+
         assert_eq!(b"hello world!", buf.view());
         assert_eq!(b"world!", buf.view_last(6));
         assert_eq!(12, buf.available())

@@ -80,12 +80,12 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
-        while let Some(WebsocketFrame::Text(ts, fin, data)) = ws.receive_next()? {
+        while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
             match self.id % 4 {
-                0 => info!("{ts}: ({fin}) {}", Red.paint(String::from_utf8_lossy(data))),
-                1 => info!("{ts}: ({fin}) {}", Green.paint(String::from_utf8_lossy(data))),
-                2 => info!("{ts}: ({fin}) {}", Purple.paint(String::from_utf8_lossy(data))),
-                3 => info!("{ts}: ({fin}) {}", Yellow.paint(String::from_utf8_lossy(data))),
+                0 => info!("({fin}) {}", Red.paint(String::from_utf8_lossy(data))),
+                1 => info!("({fin}) {}", Green.paint(String::from_utf8_lossy(data))),
+                2 => info!("({fin}) {}", Purple.paint(String::from_utf8_lossy(data))),
+                3 => info!("({fin}) {}", Yellow.paint(String::from_utf8_lossy(data))),
                 _ => {}
             }
         }

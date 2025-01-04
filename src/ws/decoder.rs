@@ -1,13 +1,12 @@
 use std::io;
 use std::io::{Read, Write};
 
-use crate::util::{current_time_nanos, into_array};
+use crate::util::into_array;
 use crate::ws::{protocol, ReadBuffer, WebsocketFrame};
 
 #[derive(Debug)]
 pub struct Decoder {
     buffer: ReadBuffer,
-    timestamp_ns: Option<u64>,
     decode_state: DecodeState,
     fin: bool,
     payload_length: usize,
@@ -27,7 +26,6 @@ impl Decoder {
     pub fn new() -> Self {
         Self {
             buffer: ReadBuffer::new(),
-            timestamp_ns: None,
             decode_state: DecodeState::ReadingHeader,
             fin: false,
             op_code: 0,
@@ -76,6 +74,7 @@ impl Decoder {
                 DecodeState::ReadingExtendedPayloadLength2 => {
                     if available >= 2 {
                         let bytes = self.buffer.consume_next(2);
+                        // SAFETY: we know bytes length is 2
                         let payload_length = u16::from_be_bytes(unsafe { into_array(bytes) });
                         self.payload_length = payload_length as usize;
                         self.decode_state = DecodeState::ReadingPayload;
@@ -86,6 +85,7 @@ impl Decoder {
                 DecodeState::ReadingExtendedPayloadLength8 => {
                     if available >= 8 {
                         let bytes = self.buffer.consume_next(8);
+                        // SAFETY: we know bytes length is 8
                         let payload_length = u64::from_be_bytes(unsafe { into_array(bytes) });
                         self.payload_length = payload_length as usize;
                         self.decode_state = DecodeState::ReadingPayload;
@@ -96,14 +96,13 @@ impl Decoder {
                 DecodeState::ReadingPayload => {
                     let payload_length = self.payload_length;
                     if available >= payload_length {
-                        let ts = *self.timestamp_ns.get_or_insert_with(current_time_nanos);
                         let payload = self.buffer.consume_next(payload_length);
                         let frame = match self.op_code {
-                            protocol::op::TEXT_FRAME => WebsocketFrame::Text(ts, self.fin, payload),
-                            protocol::op::BINARY_FRAME => WebsocketFrame::Binary(ts, self.fin, payload),
-                            protocol::op::CONTINUATION_FRAME => WebsocketFrame::Continuation(ts, self.fin, payload),
-                            protocol::op::PING => WebsocketFrame::Ping(ts, payload),
-                            protocol::op::CONNECTION_CLOSE => WebsocketFrame::Close(ts, payload),
+                            protocol::op::TEXT_FRAME => WebsocketFrame::Text(self.fin, payload),
+                            protocol::op::BINARY_FRAME => WebsocketFrame::Binary(self.fin, payload),
+                            protocol::op::CONTINUATION_FRAME => WebsocketFrame::Continuation(self.fin, payload),
+                            protocol::op::PING => WebsocketFrame::Ping(payload),
+                            protocol::op::CONNECTION_CLOSE => WebsocketFrame::Close(payload),
                             _ => panic!("unknown op code: {}", self.op_code),
                         };
                         self.decode_state = DecodeState::ReadingHeader;
@@ -117,7 +116,6 @@ impl Decoder {
 
         // await for more data
         self.buffer.read_from(stream)?;
-        self.timestamp_ns.take();
         Ok(None)
     }
 }

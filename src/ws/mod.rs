@@ -30,12 +30,12 @@ mod protocol;
 type ReadBuffer = buffer::ReadBuffer<4096>;
 
 pub enum WebsocketFrame {
-    Ping(u64, &'static [u8]),
-    Pong(u64, &'static [u8]),
-    Text(u64, bool, &'static [u8]),
-    Binary(u64, bool, &'static [u8]),
-    Continuation(u64, bool, &'static [u8]),
-    Close(u64, &'static [u8]),
+    Ping(&'static [u8]),
+    Pong(&'static [u8]),
+    Text(bool, &'static [u8]),
+    Binary(bool, &'static [u8]),
+    Continuation(bool, &'static [u8]),
+    Close(&'static [u8]),
 }
 
 #[derive(Debug)]
@@ -192,11 +192,11 @@ impl State {
                 Err(err) => Err(err)?,
             },
             State::Connection(decoder) => match decoder.decode_next(stream) {
-                Ok(Some(WebsocketFrame::Ping(_, payload))) => {
+                Ok(Some(WebsocketFrame::Ping(payload))) => {
                     self.send(stream, true, protocol::op::PONG, Some(payload))?;
                     Ok(None)
                 }
-                Ok(Some(WebsocketFrame::Close(_, payload))) => {
+                Ok(Some(WebsocketFrame::Close(payload))) => {
                     let _ = self.send(stream, true, protocol::op::CONNECTION_CLOSE, Some(payload));
                     let (status_code, body) = payload.split_at(std::mem::size_of::<u16>());
                     let status_code = u16::from_be_bytes(status_code.try_into()?);

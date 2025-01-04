@@ -30,7 +30,6 @@ fn boomnet_rtt_benchmark(c: &mut Criterion) {
         b.iter(|| {
             ws.send_text(true, Some(MSG.as_bytes())).unwrap();
             loop {
-                #[allow(deprecated)]
                 if ws.receive_next().unwrap().is_some() {
                     break;
                 }

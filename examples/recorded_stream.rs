@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use idle::IdleStrategy;
 use std::net::TcpStream;
 use std::time::Duration;

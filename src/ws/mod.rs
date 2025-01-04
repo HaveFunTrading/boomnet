@@ -85,7 +85,6 @@ impl<S: Read + Write> Websocket<S> {
         }
     }
 
-    #[deprecated(since = "0.0.30", note = "use `batch_iter` instead")]
     #[inline]
     pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
         self.batch_iter()?.next().transpose()

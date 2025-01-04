@@ -1,5 +1,4 @@
 #![allow(unused)]
-#![allow(deprecated)]
 
 use std::io;
 use std::net::{SocketAddr, TcpStream};

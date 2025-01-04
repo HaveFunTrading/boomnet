@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.29"
+version = "0.0.30"
 edition = "2021"
 license = "MIT"
 description = "Framework for building low latency websocket client based applications."
@@ -9,7 +9,7 @@ documentation = "https://docs.rs/boomnet"
 repository = "https://github.com/HaveFunTrading/boomnet"
 keywords = ["tungstenite", "async", "client", "websocket", "mio"]
 categories = ["network-programming", "web-programming::websocket"]
-rust-version = "1.74.1"
+rust-version = "1.83.0"
 
 [package.metadata.docs.rs]
 features = ["full"]

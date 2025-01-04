@@ -42,13 +42,13 @@ mod tests {
 
         impl DataSource for CustomDataSource {
             fn next(&self) -> Result<Option<WebsocketFrame>, Error> {
-                Ok(Some(WebsocketFrame::Text(1, true, b"foo")))
+                Ok(Some(WebsocketFrame::Text(true, b"foo")))
             }
         }
 
         let mut ws = Websocket::from_data_source(CustomDataSource).unwrap();
 
-        if let Some(WebsocketFrame::Text(_ts, _fin, data)) = ws.receive_next().unwrap() {
+        if let Some(WebsocketFrame::Text(_fin, data)) = ws.receive_next().unwrap() {
             assert_eq!(b"foo", data)
         } else {
             panic!("test failed")

@@ -12,8 +12,8 @@ fn main() -> anyhow::Result<()> {
     'outer: loop {
         'inner: loop {
             match ws.receive_next() {
-                Ok(Some(WebsocketFrame::Text(ts, fin, data))) => {
-                    println!("{ts}: ({fin}) {}", String::from_utf8_lossy(data));
+                Ok(Some(WebsocketFrame::Text(fin, data))) => {
+                    println!("({fin}) {}", String::from_utf8_lossy(data));
                 }
                 Ok(None) => break 'inner,
                 Err(err) => {

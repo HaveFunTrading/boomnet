@@ -13,6 +13,7 @@ use crate::buffer;
 use crate::select::Selectable;
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 use crate::stream::tls::{IntoTlsStream, NotTlsStream, TlsReadyStream, TlsStream};
+use crate::util::NoBlock;
 use crate::ws::decoder::Decoder;
 use crate::ws::handshake::Handshaker;
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
@@ -30,12 +31,12 @@ mod protocol;
 type ReadBuffer = buffer::ReadBuffer<4096>;
 
 pub enum WebsocketFrame {
-    Ping(u64, &'static [u8]),
-    Pong(u64, &'static [u8]),
-    Text(u64, bool, &'static [u8]),
-    Binary(u64, bool, &'static [u8]),
-    Continuation(u64, bool, &'static [u8]),
-    Close(u64, &'static [u8]),
+    Ping(&'static [u8]),
+    Pong(&'static [u8]),
+    Text(bool, &'static [u8]),
+    Binary(bool, &'static [u8]),
+    Continuation(bool, &'static [u8]),
+    Close(&'static [u8]),
 }
 
 #[derive(Debug)]
@@ -46,6 +47,14 @@ pub struct Websocket<S> {
 }
 
 impl<S> Websocket<S> {
+    pub fn new(stream: S, url: &str) -> io::Result<Self> {
+        Ok(Self {
+            stream,
+            closed: false,
+            state: State::handshake(url)?,
+        })
+    }
+
     /// Checks if the websocket is closed. This can be result of an IO error or the other side
     /// sending `WebsocketFrame::Closed`.
     pub const fn closed(&self) -> bool {
@@ -65,24 +74,20 @@ impl<S> Websocket<S> {
 }
 
 impl<S: Read + Write> Websocket<S> {
-    pub fn new(stream: S, url: &str) -> io::Result<Self> {
-        Ok(Self {
-            stream,
-            closed: false,
-            state: State::handshake(url)?,
-        })
-    }
-
     #[inline]
-    pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
-        self.ensure_not_closed()?;
-        match self.state.receive_next(&mut self.stream) {
-            Ok(frame) => Ok(frame),
+    pub fn batch_iter(&mut self) -> Result<BatchIter<S>, Error> {
+        match self.state.read(&mut self.stream).no_block() {
+            Ok(()) => Ok(BatchIter { websocket: self }),
             Err(err) => {
                 self.closed = true;
                 Err(err)?
             }
         }
+    }
+
+    #[inline]
+    pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
+        self.batch_iter()?.next().transpose()
     }
 
     #[inline]
@@ -103,6 +108,18 @@ impl<S: Read + Write> Websocket<S> {
     #[inline]
     pub fn send_ping(&mut self, body: Option<&[u8]>) -> Result<(), Error> {
         self.send(true, protocol::op::PING, body)
+    }
+
+    #[inline]
+    fn next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
+        self.ensure_not_closed()?;
+        match self.state.next(&mut self.stream) {
+            Ok(frame) => Ok(frame),
+            Err(err) => {
+                self.closed = true;
+                Err(err)?
+            }
+        }
     }
 
     #[inline]
@@ -180,7 +197,15 @@ impl State {
 
 impl State {
     #[inline]
-    fn receive_next<S: Read + Write>(&mut self, stream: &mut S) -> Result<Option<WebsocketFrame>, Error> {
+    fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+        match self {
+            State::Handshake(handshake) => handshake.read(stream),
+            State::Connection(decoder) => decoder.read(stream),
+        }
+    }
+
+    #[inline]
+    fn next<S: Read + Write>(&mut self, stream: &mut S) -> Result<Option<WebsocketFrame>, Error> {
         match self {
             State::Handshake(handshake) => match handshake.perform_handshake(stream) {
                 Ok(()) => {
@@ -191,22 +216,25 @@ impl State {
                 Err(err) if err.kind() == WouldBlock => Ok(None),
                 Err(err) => Err(err)?,
             },
-            State::Connection(decoder) => match decoder.decode_next(stream) {
-                Ok(Some(WebsocketFrame::Ping(_, payload))) => {
-                    self.send(stream, true, protocol::op::PONG, Some(payload))?;
-                    Ok(None)
+            State::Connection(decoder) => {
+                // decoder.read(stream).no_block()?;
+
+                match decoder.decode_next() {
+                    Ok(Some(WebsocketFrame::Ping(payload))) => {
+                        self.send(stream, true, protocol::op::PONG, Some(payload))?;
+                        Ok(None)
+                    }
+                    Ok(Some(WebsocketFrame::Close(payload))) => {
+                        let _ = self.send(stream, true, protocol::op::CONNECTION_CLOSE, Some(payload));
+                        let (status_code, body) = payload.split_at(std::mem::size_of::<u16>());
+                        let status_code = u16::from_be_bytes(status_code.try_into()?);
+                        let body = String::from_utf8_lossy(body).to_string();
+                        Err(ReceivedCloseFrame(status_code, body))
+                    }
+                    Ok(frame) => Ok(frame),
+                    Err(err) => Err(err)?,
                 }
-                Ok(Some(WebsocketFrame::Close(_, payload))) => {
-                    let _ = self.send(stream, true, protocol::op::CONNECTION_CLOSE, Some(payload));
-                    let (status_code, body) = payload.split_at(std::mem::size_of::<u16>());
-                    let status_code = u16::from_be_bytes(status_code.try_into()?);
-                    let body = String::from_utf8_lossy(body).to_string();
-                    Err(ReceivedCloseFrame(status_code, body))
-                }
-                Ok(frame) => Ok(frame),
-                Err(err) if err.kind() == WouldBlock => Ok(None),
-                Err(err) => Err(err)?,
-            },
+            }
         }
     }
 
@@ -222,6 +250,18 @@ impl State {
                 Ok(())
             }
         }
+    }
+}
+
+pub struct BatchIter<'a, S> {
+    websocket: &'a mut Websocket<S>,
+}
+
+impl<S: Read + Write> Iterator for BatchIter<'_, S> {
+    type Item = Result<WebsocketFrame, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.websocket.next().transpose()
     }
 }
 

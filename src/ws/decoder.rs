@@ -11,6 +11,7 @@ pub struct Decoder {
     fin: bool,
     payload_length: usize,
     op_code: u8,
+    needs_more_data: bool,
 }
 
 #[derive(Debug)]
@@ -30,12 +31,17 @@ impl Decoder {
             fin: false,
             op_code: 0,
             payload_length: 0,
+            needs_more_data: true,
         }
     }
 
     #[inline]
     pub fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
-        self.buffer.read_from(stream)
+        if self.needs_more_data {
+            self.buffer.read_from(stream)?;
+            self.needs_more_data = false;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -130,6 +136,7 @@ impl Decoder {
         }
 
         // await for more data
+        self.needs_more_data = true;
         Ok(None)
     }
 }

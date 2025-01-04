@@ -136,16 +136,9 @@ impl<S: Read + Write> Websocket<S> {
 
     #[inline]
     const fn ensure_not_closed(&self) -> Result<(), Error> {
-        #[cold]
-        #[inline(never)]
-        const fn signal_closed() -> Result<(), Error> {
-            Err(Closed)
-        }
-
         if self.closed {
-            return signal_closed();
+            return Err(Closed);
         }
-
         Ok(())
     }
 }

@@ -1,4 +1,53 @@
-//! Websocket protocol.
+//! Websocket client protocol implementation.
+//!
+//! ## Examples
+//!
+//! Create a TLS websocket from a stream.
+//! ```no_run
+//! use std::net::TcpStream;
+//! use boomnet::stream::BindAndConnect;
+//! use boomnet::stream::buffer::IntoBufferedStream;
+//! use boomnet::stream::tls::IntoTlsStream;
+//! use boomnet::ws::IntoWebsocket;
+//!
+//! let mut ws = TcpStream::bind_and_connect("stream.binance.com:9443", None, None).unwrap()
+//! .into_tls_stream("stream.binance.com")
+//! .into_default_buffered_stream()
+//! .into_websocket("wss://stream.binance.com:9443/ws");
+//! ```
+//!
+//! Quickly create websocket from a valid url (for debugging purposes only).
+//! ```no_run
+//! use boomnet::ws::TryIntoTlsReadyWebsocket;
+//!
+//! let mut ws = "wss://stream.binance.com:443/ws".try_into_tls_ready_websocket().unwrap();
+//! ```
+//!
+//! Receive messages in a batch for optimal performance.
+//! ```no_run
+//! use std::io::{Read, Write};
+//! use boomnet::ws::{Websocket, WebsocketFrame};
+//!
+//! fn consume_batch<S: Read + Write>(ws: &mut Websocket<S>) {
+//!    for frame in ws.batch_iter().unwrap() {
+//!      if let WebsocketFrame::Text(fin, body) = frame.unwrap() {
+//!        println!("({fin}) {}", String::from_utf8_lossy(body));
+//!      }
+//!    }
+//! }
+//! ```
+//!
+//! Receive messages at most one at a tine. If possible, use batch mode instead.
+//!```no_run
+//! use std::io::{Read, Write};
+//! use boomnet::ws::{Websocket, WebsocketFrame};
+//!
+//! fn consume_individually<S: Read + Write>(ws: &mut Websocket<S>) {
+//!   if let Some(WebsocketFrame::Text(fin, body)) = ws.receive_next().unwrap() {
+//!     println!("({fin}) {}", String::from_utf8_lossy(body));
+//!   }
+//! }
+//! ```
 
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
@@ -44,6 +93,7 @@ pub enum WebsocketFrame {
     Close(&'static [u8]),
 }
 
+/// Websocket client that owns underlying stream.
 #[derive(Debug)]
 pub struct Websocket<S> {
     stream: S,
@@ -52,13 +102,6 @@ pub struct Websocket<S> {
 }
 
 impl<S> Websocket<S> {
-    pub fn new(stream: S, url: &str) -> io::Result<Self> {
-        Ok(Self {
-            stream,
-            closed: false,
-            state: State::handshake(url)?,
-        })
-    }
 
     /// Checks if the websocket is closed. This can be result of an IO error or the other side
     /// sending `WebsocketFrame::Closed`.
@@ -75,6 +118,14 @@ impl<S> Websocket<S> {
             State::Handshake(_) => false,
             State::Connection(_) => true,
         }
+    }
+
+    fn new(stream: S, url: &str) -> io::Result<Self> {
+        Ok(Self {
+            stream,
+            closed: false,
+            state: State::handshake(url)?,
+        })
     }
 }
 

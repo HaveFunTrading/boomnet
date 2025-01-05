@@ -1,9 +1,7 @@
 use std::io;
 use std::net::{SocketAddr, TcpStream};
-use std::time::Duration;
 
 use ansi_term::Color::{Green, Purple, Red, Yellow};
-use idle::IdleStrategy;
 use log::info;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
@@ -100,8 +98,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut context = FeedContext::new();
 
-    let mut io_service =
-        MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
+    let mut io_service = MioSelector::new()?.into_io_service_with_context(&mut context);
 
     let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
     let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "ethusdt");

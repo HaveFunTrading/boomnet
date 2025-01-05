@@ -30,7 +30,6 @@ thiserror = "1.0.50"
 log = "0.4.20"
 socket2 = { version = "0.5.5", features = ["all"] }
 pnet = "0.34.0"
-idle = "0.2.0"
 mio = { version = "0.8.10", features = ["net", "os-poll"], optional = true }
 rustls = { version = "0.22.4", optional = true }
 rand = { version = "0.8.5", optional = true }
@@ -52,6 +51,7 @@ env_logger = "0.10.1"
 ansi_term = "0.12.1"
 tungstenite = "0.26.1"
 criterion = "0.5.1"
+idle = "0.2.0"
 
 [lints.clippy]
 uninit_assumed_init = "allow"

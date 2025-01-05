@@ -1,7 +1,5 @@
-use idle::IdleStrategy;
 use std::io;
 use std::net::{SocketAddr, TcpStream};
-use std::time::Duration;
 
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
@@ -40,7 +38,6 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?.into_tls_websocket(self.url);
-
         ws.send_text(
             true,
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
@@ -51,8 +48,10 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
-            println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data));
+        for frame in ws.batch_iter()? {
+            if let WebsocketFrame::Text(fin, data) = frame? {
+                println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data))
+            }
         }
         Ok(())
     }
@@ -61,7 +60,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let mut io_service = DirectSelector::new()?.into_io_service(IdleStrategy::Sleep(Duration::from_millis(1)));
+    let mut io_service = DirectSelector::new()?.into_io_service();
 
     let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
     let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "ethusdt");

@@ -30,12 +30,17 @@ mod protocol;
 
 type ReadBuffer = buffer::ReadBuffer<4096>;
 
+/// Supported web socket frame variants.
 pub enum WebsocketFrame {
+    /// Server has sent ping frame that will generate automatic pong response. This frame is not
+    /// exposed to the user.
     Ping(&'static [u8]),
     Pong(&'static [u8]),
     Text(bool, &'static [u8]),
     Binary(bool, &'static [u8]),
     Continuation(bool, &'static [u8]),
+    /// Server has sent close frame. The websocket will be closed as a result. This frame is not
+    /// exposed to the user.
     Close(&'static [u8]),
 }
 
@@ -209,25 +214,21 @@ impl State {
                 Err(err) if err.kind() == WouldBlock => Ok(None),
                 Err(err) => Err(err)?,
             },
-            State::Connection(decoder) => {
-                // decoder.read(stream).no_block()?;
-
-                match decoder.decode_next() {
-                    Ok(Some(WebsocketFrame::Ping(payload))) => {
-                        self.send(stream, true, protocol::op::PONG, Some(payload))?;
-                        Ok(None)
-                    }
-                    Ok(Some(WebsocketFrame::Close(payload))) => {
-                        let _ = self.send(stream, true, protocol::op::CONNECTION_CLOSE, Some(payload));
-                        let (status_code, body) = payload.split_at(std::mem::size_of::<u16>());
-                        let status_code = u16::from_be_bytes(status_code.try_into()?);
-                        let body = String::from_utf8_lossy(body).to_string();
-                        Err(ReceivedCloseFrame(status_code, body))
-                    }
-                    Ok(frame) => Ok(frame),
-                    Err(err) => Err(err)?,
+            State::Connection(decoder) => match decoder.decode_next() {
+                Ok(Some(WebsocketFrame::Ping(payload))) => {
+                    self.send(stream, true, protocol::op::PONG, Some(payload))?;
+                    Ok(None)
                 }
-            }
+                Ok(Some(WebsocketFrame::Close(payload))) => {
+                    let _ = self.send(stream, true, protocol::op::CONNECTION_CLOSE, Some(payload));
+                    let (status_code, body) = payload.split_at(std::mem::size_of::<u16>());
+                    let status_code = u16::from_be_bytes(status_code.try_into()?);
+                    let body = String::from_utf8_lossy(body).to_string();
+                    Err(ReceivedCloseFrame(status_code, body))
+                }
+                Ok(frame) => Ok(frame),
+                Err(err) => Err(err)?,
+            },
         }
     }
 

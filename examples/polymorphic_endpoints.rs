@@ -166,8 +166,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut context = FeedContext;
 
-    let mut io_service =
-        MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
+    let mut io_service = MioSelector::new()?.into_io_service_with_context(&mut context);
 
     let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new(0, "wss://stream.binance.com:443/ws", None, "btcusdt"));
     let trade = MarketDataEndpoint::Trade(TradeEndpoint::new(1, "wss://stream.binance.com:443/ws", None, "ethusdt"));

@@ -1,4 +1,3 @@
-use idle::IdleStrategy;
 use std::collections::HashMap;
 use std::io;
 use std::marker::PhantomData;
@@ -69,21 +68,21 @@ impl<S: Source + Selectable> Selector for MioSelector<S> {
 }
 
 impl<E: Endpoint> IntoIOService<E> for MioSelector<E::Target> {
-    fn into_io_service(self, idle_strategy: IdleStrategy) -> IOService<Self, E, ()>
+    fn into_io_service(self) -> IOService<Self, E, ()>
     where
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self, idle_strategy)
+        IOService::new(self)
     }
 }
 
 impl<C: Context, E: EndpointWithContext<C>> IntoIOServiceWithContext<E, C> for MioSelector<E::Target> {
-    fn into_io_service_with_context(self, idle_strategy: IdleStrategy, _context: &mut C) -> IOService<Self, E, C>
+    fn into_io_service_with_context(self, _context: &mut C) -> IOService<Self, E, C>
     where
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self, idle_strategy)
+        IOService::new(self)
     }
 }

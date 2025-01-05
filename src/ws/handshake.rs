@@ -56,7 +56,6 @@ impl Handshaker {
                 Err(io::Error::from(WouldBlock))
             }
             Pending => {
-                // self.buffer.read_from(stream)?;
                 let available = self.buffer.available();
                 if available >= 4 && self.buffer.view_last(4) == b"\r\n\r\n" {
                     // decode http response

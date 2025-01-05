@@ -6,7 +6,6 @@ use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
-use idle::IdleStrategy;
 use log::{error, warn};
 
 use crate::endpoint::{Context, Endpoint, EndpointWithContext};
@@ -22,7 +21,6 @@ pub struct IOService<S: Selector, E, C> {
     selector: S,
     pending_endpoints: VecDeque<E>,
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
-    idle_strategy: IdleStrategy,
     next_endpoint_create_time_ns: u64,
     context: PhantomData<C>,
     auto_disconnect: Option<Duration>,
@@ -31,7 +29,7 @@ pub struct IOService<S: Selector, E, C> {
 /// Defines how an instance that implements `SelectService` can be transformed
 /// into an [`IOService`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOService<E> {
-    fn into_io_service(self, idle_strategy: IdleStrategy) -> IOService<Self, E, ()>
+    fn into_io_service(self) -> IOService<Self, E, ()>
     where
         Self: Selector,
         Self: Sized;
@@ -40,7 +38,7 @@ pub trait IntoIOService<E> {
 /// Defines how an instance that implements [`Selector`] can be transformed
 /// into an [`IOService`] with [`Context`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOServiceWithContext<E, C: Context> {
-    fn into_io_service_with_context(self, idle_strategy: IdleStrategy, context: &mut C) -> IOService<Self, E, C>
+    fn into_io_service_with_context(self, context: &mut C) -> IOService<Self, E, C>
     where
         Self: Selector,
         Self: Sized;
@@ -48,12 +46,11 @@ pub trait IntoIOServiceWithContext<E, C: Context> {
 
 impl<S: Selector, E, C> IOService<S, E, C> {
     /// Creates new instance of [`IOService`].
-    pub fn new(selector: S, idle_strategy: IdleStrategy) -> IOService<S, E, C> {
+    pub fn new(selector: S) -> IOService<S, E, C> {
         Self {
             selector,
             pending_endpoints: VecDeque::new(),
             io_nodes: HashMap::new(),
-            idle_strategy,
             next_endpoint_create_time_ns: 0,
             context: PhantomData,
             auto_disconnect: None,
@@ -152,8 +149,6 @@ where
             true
         });
 
-        self.idle_strategy.idle(0);
-
         Ok(())
     }
 }
@@ -230,8 +225,6 @@ where
             }
             true
         });
-
-        self.idle_strategy.idle(0);
 
         Ok(())
     }

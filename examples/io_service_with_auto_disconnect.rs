@@ -2,8 +2,6 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-use idle::IdleStrategy;
-
 use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::select::mio::MioSelector;
@@ -80,7 +78,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let mut io_service = MioSelector::new()?
-        .into_io_service(IdleStrategy::Sleep(Duration::from_millis(1)))
+        .into_io_service()
         .with_auto_disconnect(Duration::from_secs(10));
 
     let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");

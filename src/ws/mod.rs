@@ -102,7 +102,6 @@ pub struct Websocket<S> {
 }
 
 impl<S> Websocket<S> {
-
     /// Checks if the websocket is closed. This can be result of an IO error or the other side
     /// sending `WebsocketFrame::Closed`.
     pub const fn closed(&self) -> bool {

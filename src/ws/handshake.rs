@@ -94,7 +94,11 @@ impl Handshaker {
     }
 
     fn send_handshake_request<S: Write>(&mut self, stream: &mut S) -> io::Result<()> {
-        stream.write_all(format!("GET {} HTTP/1.1\r\n", self.url.path()).as_bytes())?;
+        let path_with_query = match self.url.query() {
+            Some(query) => format!("{}?{}", self.url.path(), query),
+            None => self.url.path().to_string(),
+        };
+        stream.write_all(format!("GET {} HTTP/1.1\r\n", path_with_query).as_bytes())?;
         stream.write_all(format!("Host: {}\r\n", self.url.host_str().unwrap()).as_bytes())?;
         stream.write_all(b"Upgrade: websocket\r\n")?;
         stream.write_all(b"Connection: upgrade\r\n")?;

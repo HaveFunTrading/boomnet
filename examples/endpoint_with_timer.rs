@@ -3,21 +3,21 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use log::info;
-
+use url::Url;
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
-use boomnet::stream::BindAndConnect;
-use boomnet::ws::{WebsocketFrame};
+use boomnet::stream::{BindAndConnect, ConnectionInfo, ConnectionInfoProvider};
+use boomnet::ws::{Websocket, WebsocketFrame};
 
 /// This example demonstrates how to implement explicit timer inside the endpoint. Since endpoint
 /// poll method is called on every cycle by the io service we can implement timer functionality
 /// directly inside the endpoint. In this case, the endpoint will keep disconnecting every 10s.
 struct TradeEndpoint {
-    url: &'static str,
+    connection_info: ConnectionInfo,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
     next_disconnect_time_ns: u64,
@@ -30,11 +30,12 @@ impl TradeEndpoint {
         instrument: &'static str,
         ctx: &FeedContext,
     ) -> TradeEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         let net_iface = net_iface
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
-            url,
+            connection_info,
             net_iface,
             instrument,
             next_disconnect_time_ns: ctx.current_time_ns() + Duration::from_secs(10).as_nanos() as u64,
@@ -57,12 +58,14 @@ impl FeedContext {
     }
 }
 
+impl ConnectionInfoProvider for TradeEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
 impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     type Stream = MioStream;
-
-    fn url(&self) -> &str {
-        self.url
-    }
 
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
         todo!()

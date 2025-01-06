@@ -275,8 +275,14 @@ impl ConnectionInfo {
         let stream = TcpStream::bind_and_connect(&self, self.net_iface, self.cpu)?;
         Ok(tcp::TcpStream::new(stream, self))
     }
+
+    pub fn into_tcp_stream_with_addr(self, addr: SocketAddr) -> io::Result<tcp::TcpStream> {
+        let stream = TcpStream::bind_and_connect(addr, self.net_iface, self.cpu)?;
+        Ok(tcp::TcpStream::new(stream, self))
+    }
 }
 
 pub trait ConnectionInfoProvider {
     fn connection_info(&self) -> &ConnectionInfo;
 }
+

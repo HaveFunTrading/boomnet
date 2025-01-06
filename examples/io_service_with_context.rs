@@ -3,31 +3,32 @@ use std::net::{SocketAddr, TcpStream};
 
 use ansi_term::Color::{Green, Purple, Red, Yellow};
 use log::info;
-
+use url::Url;
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
-use boomnet::stream::BindAndConnect;
+use boomnet::stream::{BindAndConnect, ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{WebsocketFrame};
 
 struct TradeEndpoint {
     id: u32,
-    url: &'static str,
+    connection_info: ConnectionInfo,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
 }
 
 impl TradeEndpoint {
     pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         let net_iface = net_iface
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
             id,
-            url,
+            connection_info,
             net_iface,
             instrument,
         }
@@ -54,12 +55,14 @@ impl FeedContext {
     }
 }
 
+impl ConnectionInfoProvider for TradeEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
 impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     type Stream = MioStream;
-
-    fn url(&self) -> &str {
-        self.url
-    }
 
     fn create_websocket(&mut self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
         todo!()

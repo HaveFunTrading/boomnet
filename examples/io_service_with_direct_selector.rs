@@ -1,39 +1,43 @@
-use std::io;
-use std::net::{SocketAddr, TcpStream};
-
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
 use boomnet::service::select::direct::DirectSelector;
 use boomnet::service::IntoIOService;
+use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::WebsocketFrame;
+use std::io;
+use std::net::{SocketAddr, TcpStream};
+use url::Url;
 
 struct TradeEndpoint {
     id: u32,
-    url: &'static str,
+    connection_info: ConnectionInfo,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
 }
 
 impl TradeEndpoint {
     pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         let net_iface = net_iface
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
             id,
-            url,
+            connection_info,
             net_iface,
             instrument,
         }
     }
 }
 
+impl ConnectionInfoProvider for TradeEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
 impl TlsWebsocketEndpoint for TradeEndpoint {
     type Stream = TcpStream;
-
-    fn url(&self) -> &str {
-        self.url
-    }
 
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         todo!()

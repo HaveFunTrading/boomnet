@@ -4,18 +4,18 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-use idle::IdleStrategy;
-use log::info;
-
+use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
-use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tls::TlsStream;
-use boomnet::stream::BindAndConnect;
+use boomnet::stream::{BindAndConnect, ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{Websocket, WebsocketFrame};
+use idle::IdleStrategy;
+use log::info;
+use url::Url;
 
 struct FeedContext;
 
@@ -26,15 +26,17 @@ enum MarketDataEndpoint {
     Ticker(TickerEndpoint),
 }
 
-impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
-    type Stream = MioStream;
-
-    fn url(&self) -> &str {
+impl ConnectionInfoProvider for MarketDataEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
         match self {
-            MarketDataEndpoint::Ticker(ticker) => ticker.url(),
-            MarketDataEndpoint::Trade(trade) => trade.url(),
+            MarketDataEndpoint::Ticker(ticker) => ticker.connection_info(),
+            MarketDataEndpoint::Trade(trade) => trade.connection_info(),
         }
     }
+}
+
+impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
+    type Stream = MioStream;
 
     fn create_websocket(
         &mut self,
@@ -57,31 +59,34 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
 
 struct TradeEndpoint {
     id: u32,
-    url: &'static str,
+    connection_info: ConnectionInfo,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
 }
 
 impl TradeEndpoint {
     pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         let net_iface = net_iface
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
             id,
-            url,
+            connection_info,
             net_iface,
             instrument,
         }
     }
 }
 
+impl ConnectionInfoProvider for TradeEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
 impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     type Stream = MioStream;
-
-    fn url(&self) -> &str {
-        self.url
-    }
 
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
         todo!()
@@ -108,7 +113,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
 struct TickerEndpoint {
     id: u32,
-    url: &'static str,
+    connection_info: ConnectionInfo,
     net_iface: Option<SocketAddr>,
     instrument: &'static str,
 }
@@ -120,24 +125,27 @@ impl TickerEndpoint {
         net_iface: Option<&'static str>,
         instrument: &'static str,
     ) -> TickerEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         let net_iface = net_iface
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
         Self {
             id,
-            url,
+            connection_info,
             net_iface,
             instrument,
         }
     }
 }
 
+impl ConnectionInfoProvider for TickerEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
 impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
     type Stream = MioStream;
-
-    fn url(&self) -> &str {
-        self.url
-    }
 
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
         todo!()

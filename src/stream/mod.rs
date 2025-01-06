@@ -1,11 +1,12 @@
 //! Various stream implementations on top of which protocol can be applied.
 
-use std::{io, vec};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-
-use socket2::{Domain, Protocol, Socket, Type};
 use crate::inet::ToSocketAddr;
 use crate::select::Selectable;
+use socket2::{Domain, Protocol, Socket, Type};
+use std::fmt::{Display, Formatter};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::{io, vec};
+use url::{ParseError, Url};
 
 pub mod buffer;
 pub mod file;
@@ -206,8 +207,42 @@ impl ToSocketAddrs for ConnectionInfo {
     }
 }
 
-impl ConnectionInfo {
+impl Display for ConnectionInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
+}
 
+impl TryFrom<Url> for ConnectionInfo {
+    type Error = io::Error;
+
+    fn try_from(url: Url) -> Result<Self, Self::Error> {
+        Ok(ConnectionInfo {
+            host: url
+                .host_str()
+                .ok_or_else(|| io::Error::other("host not present"))?
+                .to_owned(),
+            port: url
+                .port_or_known_default()
+                .ok_or_else(|| io::Error::other("port not present"))?,
+            net_iface: None,
+            cpu: None,
+        })
+    }
+}
+
+impl TryFrom<Result<Url, ParseError>> for ConnectionInfo {
+    type Error = io::Error;
+
+    fn try_from(result: Result<Url, ParseError>) -> Result<Self, Self::Error> {
+        match result {
+            Ok(url) => Ok(url.try_into()?),
+            Err(err) => Err(io::Error::other(err)),
+        }
+    }
+}
+
+impl ConnectionInfo {
     pub fn new(host: impl AsRef<str>, port: u16) -> Self {
         Self {
             host: host.as_ref().to_string(),
@@ -215,6 +250,17 @@ impl ConnectionInfo {
             net_iface: None,
             cpu: None,
         }
+    }
+
+    pub fn with_net_iface(self, net_iface: SocketAddr) -> Self {
+        Self {
+            net_iface: Some(net_iface),
+            ..self
+        }
+    }
+
+    pub fn with_cpu(self, cpu: usize) -> Self {
+        Self { cpu: Some(cpu), ..self }
     }
 
     pub fn host(&self) -> &str {

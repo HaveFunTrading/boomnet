@@ -50,7 +50,7 @@
 //! ```
 
 use crate::buffer;
-use crate::select::Selectable;
+use crate::service::select::Selectable;
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 use crate::stream::tls::{IntoTlsStream, NotTlsStream};
 use crate::stream::tls::{TlsReadyStream, TlsStream};

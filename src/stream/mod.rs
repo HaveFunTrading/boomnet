@@ -1,7 +1,7 @@
 //! Various stream implementations on top of which protocol can be applied.
 
 use crate::inet::ToSocketAddr;
-use crate::select::Selectable;
+use crate::service::select::Selectable;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::fmt::{Display, Formatter};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};

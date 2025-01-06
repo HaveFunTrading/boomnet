@@ -2,7 +2,7 @@ use std::io;
 use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock};
 use std::io::{Read, Write};
 
-use crate::select::Selectable;
+use crate::service::select::Selectable;
 use crate::stream;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use mio::event::Source;

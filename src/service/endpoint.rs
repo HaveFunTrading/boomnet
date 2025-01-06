@@ -114,7 +114,7 @@ pub mod ws {
 
     use url::Url;
 
-    use crate::endpoint::{ConnectionInfo, Endpoint, EndpointWithContext};
+    use crate::service::endpoint::{ConnectionInfo, Endpoint, EndpointWithContext};
     use crate::stream::tls::TlsStream;
     use crate::ws::Websocket;
 

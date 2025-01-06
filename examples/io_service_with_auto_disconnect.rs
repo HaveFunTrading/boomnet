@@ -1,14 +1,13 @@
 use std::io;
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::time::Duration;
 
-use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::select::mio::MioSelector;
+use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
+use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOService;
-use boomnet::stream::mio::{IntoMioStream, MioStream};
-use boomnet::stream::BindAndConnect;
-use boomnet::ws::{WebsocketFrame};
+use boomnet::stream::mio::MioStream;
+use boomnet::ws::WebsocketFrame;
 
 struct TradeEndpoint {
     id: u32,

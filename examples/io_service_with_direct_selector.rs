@@ -1,12 +1,11 @@
 use std::io;
 use std::net::{SocketAddr, TcpStream};
 
-use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::select::direct::DirectSelector;
+use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
+use boomnet::service::select::direct::DirectSelector;
 use boomnet::service::IntoIOService;
-use boomnet::stream::BindAndConnect;
-use boomnet::ws::{WebsocketFrame};
+use boomnet::ws::WebsocketFrame;
 
 struct TradeEndpoint {
     id: u32,

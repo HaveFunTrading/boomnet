@@ -8,10 +8,14 @@ use std::time::Duration;
 
 use log::{error, warn};
 
-use crate::endpoint::{Context, Endpoint, EndpointWithContext};
-use crate::node::IONode;
-use crate::select::{Selector, SelectorToken};
+use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
+use crate::service::node::IONode;
+use crate::service::select::{Selector, SelectorToken};
 use crate::util::current_time_nanos;
+
+pub mod endpoint;
+mod node;
+pub mod select;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 

@@ -4,10 +4,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use log::info;
 
-use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
-use boomnet::endpoint::Context;
+use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
+use boomnet::service::endpoint::Context;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::select::mio::MioSelector;
+use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::BindAndConnect;

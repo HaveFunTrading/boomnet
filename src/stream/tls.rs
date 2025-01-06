@@ -8,7 +8,7 @@ use std::sync::Arc;
 use mio::{event::Source, Interest, Registry, Token};
 use rustls::{ClientConnection, RootCertStore};
 
-use crate::select::Selectable;
+use crate::service::select::Selectable;
 use crate::stream::buffer::BufferedStream;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "mio")]

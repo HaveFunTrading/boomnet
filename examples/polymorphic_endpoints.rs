@@ -15,7 +15,7 @@ use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tls::TlsStream;
 use boomnet::stream::BindAndConnect;
-use boomnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
+use boomnet::ws::{Websocket, WebsocketFrame};
 
 struct FeedContext;
 
@@ -84,16 +84,17 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-            .into_mio_stream()
-            .into_tls_websocket(self.url);
-
-        ws.send_text(
-            true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
-        )?;
-
-        Ok(ws)
+        todo!()
+        // let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+        //     .into_mio_stream()
+        //     .into_tls_websocket(self.url);
+        //
+        // ws.send_text(
+        //     true,
+        //     Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
+        // )?;
+        //
+        // Ok(ws)
     }
 
     #[inline]
@@ -139,16 +140,17 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
     }
 
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-            .into_mio_stream()
-            .into_tls_websocket(self.url);
-
-        ws.send_text(
-            true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@ticker"],"id":1}}"#, self.instrument).as_bytes()),
-        )?;
-
-        Ok(ws)
+        todo!()
+        // let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+        //     .into_mio_stream()
+        //     .into_tls_websocket(self.url);
+        //
+        // ws.send_text(
+        //     true,
+        //     Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@ticker"],"id":1}}"#, self.instrument).as_bytes()),
+        // )?;
+        //
+        // Ok(ws)
     }
 
     #[inline]

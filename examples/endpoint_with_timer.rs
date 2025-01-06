@@ -11,7 +11,7 @@ use boomnet::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::BindAndConnect;
-use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
+use boomnet::ws::{WebsocketFrame};
 
 /// This example demonstrates how to implement explicit timer inside the endpoint. Since endpoint
 /// poll method is called on every cycle by the io service we can implement timer functionality
@@ -65,16 +65,17 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-            .into_mio_stream()
-            .into_tls_websocket(self.url);
-
-        ws.send_text(
-            true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
-        )?;
-
-        Ok(ws)
+        todo!()
+        // let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+        //     .into_mio_stream()
+        //     .into_tls_websocket(self.url);
+        //
+        // ws.send_text(
+        //     true,
+        //     Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
+        // )?;
+        //
+        // Ok(ws)
     }
 
     #[inline]

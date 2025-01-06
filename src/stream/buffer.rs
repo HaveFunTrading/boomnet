@@ -3,6 +3,7 @@
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::mem::MaybeUninit;
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 
 /// Default buffer size in bytes.
 pub const DEFAULT_BUFFER_SIZE: usize = 1024;
@@ -77,6 +78,12 @@ impl<S: Write, const N: usize> Write for BufferedStream<S, N> {
     }
 }
 
+impl<S: ConnectionInfoProvider> ConnectionInfoProvider for BufferedStream<S> {
+    fn connection_info(&self) -> &ConnectionInfo {
+        self.inner.connection_info()
+    }
+}
+
 /// Trait to convert any stream into `BufferedStream`.
 pub trait IntoBufferedStream<S> {
     /// Convert into `BufferedStream` and specify buffer length.
@@ -93,7 +100,7 @@ pub trait IntoBufferedStream<S> {
 
 impl<T> IntoBufferedStream<T> for T
 where
-    T: Read + Write,
+    T: Read + Write + ConnectionInfoProvider,
 {
     fn into_buffered_stream<const N: usize>(self) -> BufferedStream<T, N> {
         unsafe {

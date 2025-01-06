@@ -2,23 +2,27 @@ use std::io;
 use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock};
 use std::io::{Read, Write};
 
+use crate::select::Selectable;
+use crate::stream;
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use mio::event::Source;
 use mio::net::TcpStream;
 use mio::{Interest, Registry, Token};
-
-use crate::select::Selectable;
+use stream::tcp;
 
 pub struct MioStream {
     inner: TcpStream,
+    connection_info: ConnectionInfo,
     connected: bool,
     can_read: bool,
     can_write: bool,
 }
 
-impl From<TcpStream> for MioStream {
-    fn from(inner: TcpStream) -> Self {
+impl MioStream {
+    fn new(inner: TcpStream, connection_info: ConnectionInfo) -> MioStream {
         Self {
             inner,
+            connection_info,
             connected: false,
             can_read: false,
             can_write: false,
@@ -92,12 +96,19 @@ impl Write for MioStream {
     }
 }
 
+impl ConnectionInfoProvider for MioStream {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
 pub trait IntoMioStream {
     fn into_mio_stream(self) -> MioStream;
 }
 
-impl IntoMioStream for std::net::TcpStream {
+impl IntoMioStream for tcp::TcpStream {
     fn into_mio_stream(self) -> MioStream {
-        TcpStream::from_std(self).into()
+        let connection_info = self.connection_info().clone();
+        MioStream::new(TcpStream::from_std(self.into()), connection_info)
     }
 }

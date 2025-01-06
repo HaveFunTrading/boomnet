@@ -20,7 +20,7 @@
 //! ```no_run
 //! use boomnet::ws::TryIntoTlsReadyWebsocket;
 //!
-//! let mut ws = "wss://stream.binance.com:443/ws".try_into_tls_ready_websocket().unwrap();
+//! let mut ws = "wss://stream.binance.com/ws".try_into_tls_ready_websocket().unwrap();
 //! ```
 //!
 //! Receive messages in a batch for optimal performance.
@@ -49,23 +49,23 @@
 //! }
 //! ```
 
+use crate::buffer;
+use crate::select::Selectable;
+#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
+use crate::stream::tls::{IntoTlsStream, NotTlsStream};
+use crate::stream::tls::{TlsReadyStream, TlsStream};
+use crate::stream::{BindAndConnect, ConnectionInfoProvider};
+use crate::util::NoBlock;
+use crate::ws::decoder::Decoder;
+use crate::ws::handshake::Handshaker;
+use crate::ws::Error::{Closed, ReceivedCloseFrame};
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
 use std::io;
 use std::io::ErrorKind::WouldBlock;
 use std::io::{Read, Write};
-use std::net::TcpStream;
 use thiserror::Error;
 use url::Url;
-
-use crate::buffer;
-use crate::select::Selectable;
-#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
-use crate::stream::tls::{IntoTlsStream, NotTlsStream, TlsReadyStream, TlsStream};
-use crate::util::NoBlock;
-use crate::ws::decoder::Decoder;
-use crate::ws::handshake::Handshaker;
-use crate::ws::Error::{Closed, ReceivedCloseFrame};
 
 // re-export
 pub use crate::ws::error::Error;
@@ -102,6 +102,14 @@ pub struct Websocket<S> {
 }
 
 impl<S> Websocket<S> {
+    pub fn new(stream: S, host: &str, endpoint: &str) -> Websocket<S> {
+        Self {
+            stream,
+            closed: false,
+            state: State::handshake(host, endpoint),
+        }
+    }
+
     /// Checks if the websocket is closed. This can be result of an IO error or the other side
     /// sending `WebsocketFrame::Closed`.
     pub const fn closed(&self) -> bool {
@@ -117,14 +125,6 @@ impl<S> Websocket<S> {
             State::Handshake(_) => false,
             State::Connection(_) => true,
         }
-    }
-
-    fn new(stream: S, url: &str) -> io::Result<Self> {
-        Ok(Self {
-            stream,
-            closed: false,
-            state: State::handshake(url)?,
-        })
     }
 }
 
@@ -234,8 +234,8 @@ enum State {
 }
 
 impl State {
-    pub fn handshake(url: &str) -> Result<Self, Error> {
-        Ok(Self::Handshake(Handshaker::new(url)?))
+    pub fn handshake(host: &str, endpoint: &str) -> Self {
+        Self::Handshake(Handshaker::new(host, endpoint))
     }
 
     pub fn connection() -> Self {
@@ -310,26 +310,27 @@ impl<S: Read + Write> Iterator for BatchIter<'_, S> {
 }
 
 pub trait IntoWebsocket {
-    fn into_websocket(self, url: &str) -> Websocket<Self>
+    fn into_websocket(self, endpoint: &str) -> Websocket<Self>
     where
         Self: Sized;
 }
 
 impl<T> IntoWebsocket for T
 where
-    T: Read + Write,
+    T: Read + Write + ConnectionInfoProvider,
 {
-    fn into_websocket(self, url: &str) -> Websocket<Self>
+    fn into_websocket(self, endpoint: &str) -> Websocket<Self>
     where
         Self: Sized,
     {
-        Websocket::new(self, url).unwrap()
+        let host = self.connection_info().host().to_owned();
+        Websocket::new(self, &host, endpoint)
     }
 }
 
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 pub trait IntoTlsWebsocket {
-    fn into_tls_websocket(self, url: &str) -> Websocket<TlsStream<Self>>
+    fn into_tls_websocket(self, endpoint: &str) -> Websocket<TlsStream<Self>>
     where
         Self: Sized;
 }
@@ -337,22 +338,19 @@ pub trait IntoTlsWebsocket {
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 impl<T> IntoTlsWebsocket for T
 where
-    T: Read + Write + NotTlsStream,
+    T: Read + Write + NotTlsStream + ConnectionInfoProvider,
 {
-    fn into_tls_websocket(self, url: &str) -> Websocket<TlsStream<Self>>
+    fn into_tls_websocket(self, endpoint: &str) -> Websocket<TlsStream<Self>>
     where
         Self: Sized,
     {
-        let url_tmp = Url::parse(url).unwrap();
-        let server_name = url_tmp.host_str().unwrap();
-        let tls_stream = self.into_tls_stream(server_name);
-        Websocket::new(tls_stream, url).unwrap()
+        self.into_tls_stream().into_websocket(endpoint)
     }
 }
 
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 pub trait TryIntoTlsReadyWebsocket {
-    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
+    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<std::net::TcpStream>>>
     where
         Self: Sized;
 }
@@ -362,12 +360,19 @@ impl<T> TryIntoTlsReadyWebsocket for T
 where
     T: AsRef<str>,
 {
-    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
+    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<std::net::TcpStream>>>
     where
         Self: Sized,
     {
         let url = Url::parse(self.as_ref()).map_err(io::Error::other)?;
-        let stream = TcpStream::connect(url.socket_addrs(|| None)?[0])?;
+
+        let addr = url.socket_addrs(|| match url.scheme() {
+            "ws" => Some(80),
+            "wss" => Some(443),
+            _ => None,
+        })?;
+
+        let stream = std::net::TcpStream::bind_and_connect(addr[0], None, None)?;
 
         let tls_ready_stream = match url.scheme() {
             "ws" => Ok(TlsReadyStream::Plain(stream)),
@@ -375,6 +380,6 @@ where
             scheme => Err(io::Error::other(format!("unrecognised url scheme: {}", scheme))),
         }?;
 
-        Websocket::new(tls_ready_stream, self.as_ref())
+        Ok(Websocket::new(tls_ready_stream, url.host_str().unwrap(), url.path()))
     }
 }

@@ -1,11 +1,11 @@
-use std::net::TcpStream;
-
 use ::tungstenite::{connect, Message};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use tungstenite::Utf8Bytes;
 
 use ::boomnet::stream::buffer::IntoBufferedStream;
 use ::boomnet::ws::IntoWebsocket;
+use boomnet::stream::ConnectionInfo;
+use boomnet::stream::record::IntoRecordedStream;
 
 mod server;
 
@@ -19,12 +19,11 @@ fn boomnet_rtt_benchmark(c: &mut Criterion) {
     server::start_on_thread(9002);
 
     // setup client
-    let stream = TcpStream::connect("127.0.0.1:9002").unwrap();
-    stream.set_nonblocking(true).unwrap();
-    stream.set_nodelay(true).unwrap();
-    let mut ws = stream
+    let mut ws = ConnectionInfo::new("127.0.0.1", 9002)
+        .into_tcp_stream()
+        .unwrap()
         .into_default_buffered_stream()
-        .into_websocket("ws://127.0.0.1:9002");
+        .into_websocket("/");
 
     group.bench_function("boomnet_rtt", |b| {
         b.iter(|| {

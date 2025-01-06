@@ -8,7 +8,7 @@ use boomnet::select::mio::MioSelector;
 use boomnet::service::IntoIOService;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::BindAndConnect;
-use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
+use boomnet::ws::{WebsocketFrame};
 
 struct TradeEndpoint {
     id: u32,
@@ -39,16 +39,17 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     }
 
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-            .into_mio_stream()
-            .into_tls_websocket(self.url.as_str());
-
-        ws.send_text(
-            true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
-        )?;
-
-        Ok(ws)
+        todo!()
+        // let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+        //     .into_mio_stream()
+        //     .into_tls_websocket(self.url.as_str());
+        //
+        // ws.send_text(
+        //     true,
+        //     Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
+        // )?;
+        //
+        // Ok(ws)
     }
 
     #[inline]

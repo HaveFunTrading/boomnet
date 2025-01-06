@@ -1,10 +1,10 @@
 //! Various stream implementations on top of which protocol can be applied.
 
-use std::io;
+use std::{io, vec};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 
 use socket2::{Domain, Protocol, Socket, Type};
-
+use crate::inet::ToSocketAddr;
 use crate::select::Selectable;
 
 pub mod buffer;
@@ -13,6 +13,7 @@ pub mod file;
 pub mod mio;
 pub mod record;
 pub mod replay;
+pub mod tcp;
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 pub mod tls;
 
@@ -186,4 +187,50 @@ impl Selectable for TcpStream {
     fn make_readable(&mut self) {
         // no-op
     }
+}
+
+/// TCP stream connection info.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectionInfo {
+    host: String,
+    port: u16,
+    net_iface: Option<SocketAddr>,
+    cpu: Option<usize>,
+}
+
+impl ToSocketAddrs for ConnectionInfo {
+    type Iter = vec::IntoIter<SocketAddr>;
+
+    fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
+        format!("{}:{}", self.host, self.port).to_socket_addrs()
+    }
+}
+
+impl ConnectionInfo {
+
+    pub fn new(host: impl AsRef<str>, port: u16) -> Self {
+        Self {
+            host: host.as_ref().to_string(),
+            port,
+            net_iface: None,
+            cpu: None,
+        }
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn into_tcp_stream(self) -> io::Result<tcp::TcpStream> {
+        let stream = TcpStream::bind_and_connect(&self, self.net_iface, self.cpu)?;
+        Ok(tcp::TcpStream::new(stream, self))
+    }
+}
+
+pub trait ConnectionInfoProvider {
+    fn connection_info(&self) -> &ConnectionInfo;
 }

@@ -1,7 +1,6 @@
 use std::io;
 use std::io::ErrorKind::Other;
 use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::sync::Arc;
 
 #[cfg(feature = "mio")]
@@ -9,10 +8,6 @@ use mio::{event::Source, Interest, Registry, Token};
 use rustls::{ClientConnection, RootCertStore};
 
 use crate::service::select::Selectable;
-use crate::stream::buffer::BufferedStream;
-#[cfg(feature = "mio")]
-use crate::stream::mio::MioStream;
-use crate::stream::record::RecordedStream;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use crate::util::NoBlock;
 
@@ -210,19 +205,6 @@ impl<S: Selectable> Selectable for TlsReadyStream<S> {
     }
 }
 
-pub trait NotTlsStream {}
-
-impl NotTlsStream for TcpStream {}
-
-impl NotTlsStream for crate::stream::tcp::TcpStream {}
-
-impl<S> NotTlsStream for RecordedStream<S> {}
-
-impl<S> NotTlsStream for BufferedStream<S> {}
-
-#[cfg(feature = "mio")]
-impl NotTlsStream for MioStream {}
-
 pub trait IntoTlsStream {
     fn into_tls_stream(self) -> TlsStream<Self>
     where
@@ -231,7 +213,7 @@ pub trait IntoTlsStream {
 
 impl<T> IntoTlsStream for T
 where
-    T: Read + Write + NotTlsStream + ConnectionInfoProvider,
+    T: Read + Write + ConnectionInfoProvider,
 {
     fn into_tls_stream(self) -> TlsStream<Self>
     where

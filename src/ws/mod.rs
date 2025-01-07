@@ -52,7 +52,7 @@
 use crate::buffer;
 use crate::service::select::Selectable;
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
-use crate::stream::tls::{IntoTlsStream, NotTlsStream};
+use crate::stream::tls::IntoTlsStream;
 use crate::stream::tls::{TlsReadyStream, TlsStream};
 use crate::stream::{BindAndConnect, ConnectionInfoProvider};
 use crate::util::NoBlock;
@@ -342,7 +342,7 @@ pub trait IntoTlsWebsocket {
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 impl<T> IntoTlsWebsocket for T
 where
-    T: Read + Write + NotTlsStream + ConnectionInfoProvider,
+    T: Read + Write + ConnectionInfoProvider,
 {
     fn into_tls_websocket(self, endpoint: &str) -> Websocket<TlsStream<Self>>
     where

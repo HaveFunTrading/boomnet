@@ -3,12 +3,12 @@ use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
+use boomnet::stream::tcp::TcpStream;
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 use log::info;
 use std::io;
 use std::net::SocketAddr;
-use url::Url;
 
 pub struct FeedContext;
 impl Context for FeedContext {}
@@ -29,9 +29,7 @@ pub struct TradeEndpoint {
 
 impl TradeEndpoint {
     pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
-        let url = Url::parse(url).unwrap();
-        let mut connection_info = ConnectionInfo::try_from(url.clone()).unwrap();
-        let ws_endpoint = url.path().to_owned();
+        let (mut connection_info, ws_endpoint, _) = boomnet::ws::util::parse_url(url).unwrap();
         let net_iface = net_iface
             .and_then(|name| name.into_network_interface())
             .and_then(|iface| iface.to_socket_addr());
@@ -57,10 +55,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     type Stream = MioStream;
 
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = self
-            .connection_info
-            .clone()
-            .into_tcp_stream_with_addr(addr)?
+        let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_tls_websocket(&self.ws_endpoint);
 
@@ -93,10 +88,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     type Stream = MioStream;
 
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = self
-            .connection_info
-            .clone()
-            .into_tcp_stream_with_addr(addr)?
+        let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_tls_websocket(&self.ws_endpoint);
 

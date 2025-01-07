@@ -200,6 +200,7 @@ pub struct ConnectionInfo {
     port: u16,
     net_iface: Option<SocketAddr>,
     cpu: Option<usize>,
+    socket_config: Option<fn(&Socket) -> io::Result<()>>,
 }
 
 impl ToSocketAddrs for ConnectionInfo {
@@ -230,6 +231,7 @@ impl TryFrom<Url> for ConnectionInfo {
                 .ok_or_else(|| io::Error::other("port not present"))?,
             net_iface: None,
             cpu: None,
+            socket_config: None,
         })
     }
 }
@@ -252,6 +254,7 @@ impl ConnectionInfo {
             port,
             net_iface: None,
             cpu: None,
+            socket_config: None,
         }
     }
 
@@ -266,6 +269,13 @@ impl ConnectionInfo {
         Self { cpu: Some(cpu), ..self }
     }
 
+    pub fn with_socket_config(self, socket_config: fn(&Socket) -> io::Result<()>) -> Self {
+        Self {
+            socket_config: Some(socket_config),
+            ..self
+        }
+    }
+
     pub fn host(&self) -> &str {
         &self.host
     }
@@ -275,12 +285,24 @@ impl ConnectionInfo {
     }
 
     pub fn into_tcp_stream(self) -> io::Result<tcp::TcpStream> {
-        let stream = TcpStream::bind_and_connect(&self, self.net_iface, self.cpu)?;
+        let stream =
+            TcpStream::bind_and_connect_with_socket_config(&self, self.net_iface, self.cpu, |socket| {
+                match self.socket_config {
+                    Some(f) => f(socket),
+                    None => Ok(()),
+                }
+            })?;
         Ok(tcp::TcpStream::new(stream, self))
     }
 
     pub fn into_tcp_stream_with_addr(self, addr: SocketAddr) -> io::Result<tcp::TcpStream> {
-        let stream = TcpStream::bind_and_connect(addr, self.net_iface, self.cpu)?;
+        let stream =
+            TcpStream::bind_and_connect_with_socket_config(addr, self.net_iface, self.cpu, |socket| {
+                match self.socket_config {
+                    Some(f) => f(socket),
+                    None => Ok(()),
+                }
+            })?;
         Ok(tcp::TcpStream::new(stream, self))
     }
 }

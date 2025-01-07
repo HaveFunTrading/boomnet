@@ -17,7 +17,7 @@ use crate::ws::Error;
 pub struct Handshaker {
     buffer: ReadBuffer<1>,
     state: HandshakeState,
-    host: String,
+    server_name: String,
     endpoint: String,
     pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
 }
@@ -30,11 +30,11 @@ pub enum HandshakeState {
 }
 
 impl Handshaker {
-    pub fn new(host: &str, endpoint: &str) -> Self {
+    pub fn new(server_name: &str, endpoint: &str) -> Self {
         Self {
             buffer: ReadBuffer::new(),
             state: NotStarted,
-            host: host.to_string(),
+            server_name: server_name.to_string(),
             endpoint: endpoint.to_string(),
             pending_msg_buffer: VecDeque::with_capacity(256),
         }
@@ -95,7 +95,7 @@ impl Handshaker {
 
     fn send_handshake_request<S: Write>(&mut self, stream: &mut S) -> io::Result<()> {
         stream.write_all(format!("GET {} HTTP/1.1\r\n", self.endpoint).as_bytes())?;
-        stream.write_all(format!("Host: {}\r\n", self.host).as_bytes())?;
+        stream.write_all(format!("Host: {}\r\n", self.server_name).as_bytes())?;
         stream.write_all(b"Upgrade: websocket\r\n")?;
         stream.write_all(b"Connection: upgrade\r\n")?;
         stream.write_all(format!("Sec-WebSocket-Key: {}\r\n", generate_nonce()).as_bytes())?;

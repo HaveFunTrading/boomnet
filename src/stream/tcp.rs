@@ -4,6 +4,7 @@ use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::io;
 use std::io::{Read, Write};
+use std::net::SocketAddr;
 
 /// Wraps `std::net::TcpStream` and provides `ConnectionInfo`.
 pub struct TcpStream {
@@ -14,6 +15,49 @@ pub struct TcpStream {
 impl From<TcpStream> for std::net::TcpStream {
     fn from(stream: TcpStream) -> Self {
         stream.inner
+    }
+}
+
+impl TryFrom<(&str, u16)> for TcpStream {
+    type Error = io::Error;
+
+    fn try_from(host_and_port: (&str, u16)) -> Result<Self, Self::Error> {
+        let (host, port) = host_and_port;
+        ConnectionInfo::new(host, port).into_tcp_stream()
+    }
+}
+
+impl TryFrom<ConnectionInfo> for TcpStream {
+    type Error = io::Error;
+
+    fn try_from(connection_info: ConnectionInfo) -> Result<Self, Self::Error> {
+        connection_info.into_tcp_stream()
+    }
+}
+
+impl TryFrom<&ConnectionInfo> for TcpStream {
+    type Error = io::Error;
+
+    fn try_from(connection_info: &ConnectionInfo) -> Result<Self, Self::Error> {
+        connection_info.clone().into_tcp_stream()
+    }
+}
+
+impl TryFrom<(&ConnectionInfo, SocketAddr)> for TcpStream {
+    type Error = io::Error;
+
+    fn try_from(conn_and_addr: (&ConnectionInfo, SocketAddr)) -> Result<Self, Self::Error> {
+        let (conn, addr) = conn_and_addr;
+        conn.clone().into_tcp_stream_with_addr(addr)
+    }
+}
+
+impl TryFrom<(ConnectionInfo, SocketAddr)> for TcpStream {
+    type Error = io::Error;
+
+    fn try_from(conn_and_addr: (ConnectionInfo, SocketAddr)) -> Result<Self, Self::Error> {
+        let (conn, addr) = conn_and_addr;
+        conn.into_tcp_stream_with_addr(addr)
     }
 }
 

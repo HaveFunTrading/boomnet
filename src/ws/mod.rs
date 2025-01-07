@@ -77,6 +77,7 @@ mod encoder;
 mod error;
 mod handshake;
 mod protocol;
+pub mod util;
 
 type ReadBuffer = buffer::ReadBuffer<4096>;
 
@@ -103,11 +104,11 @@ pub struct Websocket<S> {
 }
 
 impl<S> Websocket<S> {
-    pub fn new(stream: S, host: &str, endpoint: &str) -> Websocket<S> {
+    pub fn new(stream: S, server_name: &str, endpoint: &str) -> Websocket<S> {
         Self {
             stream,
             closed: false,
-            state: State::handshake(host, endpoint),
+            state: State::handshake(server_name, endpoint),
         }
     }
 
@@ -235,8 +236,8 @@ enum State {
 }
 
 impl State {
-    pub fn handshake(host: &str, endpoint: &str) -> Self {
-        Self::Handshake(Handshaker::new(host, endpoint))
+    pub fn handshake(server_name: &str, endpoint: &str) -> Self {
+        Self::Handshake(Handshaker::new(server_name, endpoint))
     }
 
     pub fn connection() -> Self {

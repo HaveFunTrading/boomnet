@@ -37,17 +37,18 @@ The first layer defines `stream` as abstraction over TCP connection, adhering to
 * Allows binding to specific network interface.
 * Facilitates implementation of TCP oriented client protocols such as WebSocket, HTTP, and FIX.
 
-Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.
+Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.,i
 
 ```rust
-let stream: RecordedStream<TlsStream<TcpStream>> = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-    .into_tls_stream(self.url)
-    .into_recorded_stream("plain");
+let stream: RecordedStream<TlsStream<TcpStream>> = ConnectionInfo::new(host, port)
+    .into_tcp_stream()?
+    .into_tls_stream()
+    .into_default_recorded_stream();
 ```
 
 Different protocols can then be applied on top of a stream.
 ```rust
-let ws: Websocket<RecordedStream<TlsStream<TcpStream>>> = stream.into_websocket(self.url);
+let ws: Websocket<RecordedStream<TlsStream<TcpStream>>> = stream.into_websocket("/ws");
 ```
 
 ### Selector
@@ -56,7 +57,7 @@ Though primarily utilised internally, selectors are crucial for the `IOService` 
 `mio` and `direct` (no-op) implementations.
 
 ```rust
-let mut io_service = MioSelector::new()?.into_io_service(IdleStrategy::Sleep(Duration::from_millis(1)));
+let mut io_service = MioSelector::new()?.into_io_service();
 ```
 
 ### Service
@@ -74,7 +75,7 @@ The websocket client protocol complies with the [RFC 6455](https://datatracker.i
 offering the following features.
 
 * Compatibility with any stream.
-* TCP batch-aware timestamps for frames read in the same batch.
+* TCP batch-aware frame processing.
 * Not blocking on partial frame(s).
 * Designed for zero-copy read and write.
 * Optional masking of outbound frames.
@@ -92,30 +93,34 @@ that we can use.
 
 struct TradeEndpoint {
     id: u32,
-    url: &'static str,
+    connection_info: ConnectionInfo,
+    ws_endpoint: String,
     instrument: &'static str,
 }
 
 impl TradeEndpoint {
     pub fn new(id: u32, url: &'static str, instrument: &'static str) -> TradeEndpoint {
-        Self { id, url, instrument, }
+        let (connection_info, ws_endpoint, _) = boomnet::ws::util::parse_url(url).unwrap();
+        Self { id, connection_info, ws_endpoint, instrument, }
+    }
+}
+
+impl ConnectionInfoProvider for TradeEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
     }
 }
 
 impl TlsWebsocketEndpoint for TradeEndpoint {
+    
     type Stream = MioStream;
-
-    fn url(&self) -> &str {
-        self.url
-    }
 
     // called by the IO service whenever a connection has to be established for this endpoint
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
-        
-        // create secure websocket
-        let mut ws = TcpStream::bind_and_connect(addr, None, None)?
+
+        let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
-            .into_tls_websocket(self.url);
+            .into_tls_websocket(&self.ws_endpoint);
 
         // send subscription message
         ws.send_text(
@@ -128,10 +133,11 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        // keep calling receive_next until no more frames in the current batch
-        while let Some(WebsocketFrame::Text(ts, fin, data)) = ws.receive_next()? {
-            // handle the message
-            println!("[{}] {ts}: ({fin}) {}", self.id, String::from_utf8_lossy(data));
+        // iterate over available frames in the current batch
+        for frame in ws.batch_iter()? {
+            if let WebsocketFrame::Text(fin, data) = frame? {
+                println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data));
+            }
         }
         Ok(())
     }
@@ -144,11 +150,11 @@ After defining the endpoint, it is registered with the `IOService` and polled wi
 ```rust
 
 fn main() -> anyhow::Result<()> {
-    let mut io_service = MioSelector::new()?.into_io_service(IdleStrategy::Sleep(Duration::from_millis(1)));
+    let mut io_service = MioSelector::new()?.into_io_service();
 
-    let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
-    let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "ethusdt");
-    let endpoint_xrp = TradeEndpoint::new(2, "wss://stream3.binance.com:443/ws", None, "xrpusdt");
+    let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", "btcusdt");
+    let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", "ethusdt");
+    let endpoint_xrp = TradeEndpoint::new(2, "wss://stream3.binance.com:443/ws", "xrpusdt");
 
     io_service.register(endpoint_btc);
     io_service.register(endpoint_eth);
@@ -164,9 +170,7 @@ fn main() -> anyhow::Result<()> {
 It is often required to expose shared state to the `Endpoint`. This can be achieved with user defined `Context`.
 
 ```rust
-struct FeedContext {
-    static_data: StaticData,
-}
+struct FeedContext;
 
 // use the marker trait
 impl Context for FeedContext {}
@@ -196,7 +200,7 @@ We will also need to create `IOService` that is `Context` aware.
 
 ```rust
 let mut context = FeedContext::new(static_data);
-let mut io_service = MioSelector::new()?.into_io_service_with_context(IdleStrategy::Sleep(Duration::from_millis(1)), &mut context);
+let mut io_service = MioSelector::new()?.into_io_service_with_context(&mut context);
 ```
 
 The `Context` must now be passed to the service `poll` method.

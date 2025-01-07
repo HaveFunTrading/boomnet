@@ -297,6 +297,10 @@ impl State {
     }
 }
 
+/// Allows to decode and iterate over incoming messages in a batch efficient way. It will perform
+/// single network read operation if there is no more data available for processing. It is possible
+/// to receive more than one message from a single network read and when no messages are available
+/// in the current batch, the iterator will yield `None`.
 pub struct BatchIter<'a, S> {
     websocket: &'a mut Websocket<S>,
 }
@@ -372,6 +376,11 @@ where
             _ => None,
         })?;
 
+        let endpoint = match url.query() {
+            Some(query) => format!("{}?{}", url.path(), query),
+            None => url.path().to_string(),
+        };
+
         let stream = std::net::TcpStream::bind_and_connect(addr[0], None, None)?;
 
         let tls_ready_stream = match url.scheme() {
@@ -380,6 +389,6 @@ where
             scheme => Err(io::Error::other(format!("unrecognised url scheme: {}", scheme))),
         }?;
 
-        Ok(Websocket::new(tls_ready_stream, url.host_str().unwrap(), url.path()))
+        Ok(Websocket::new(tls_ready_stream, url.host_str().unwrap(), &endpoint))
     }
 }

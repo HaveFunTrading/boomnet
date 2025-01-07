@@ -76,7 +76,8 @@ impl<S: Selector, E, C> IOService<S, E, C> {
     }
 
     fn resolve_dns(connection_info: &ConnectionInfo) -> io::Result<SocketAddr> {
-        connection_info.to_socket_addrs()?
+        connection_info
+            .to_socket_addrs()?
             .next()
             .ok_or_else(|| io::Error::other("unable to resolve dns address"))
     }

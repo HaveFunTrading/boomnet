@@ -1,30 +1,26 @@
-use idle::IdleStrategy;
-use std::time::Duration;
+use std::io::ErrorKind::UnexpectedEof;
 
 use boomnet::stream::replay::ReplayStream;
-use boomnet::ws::{IntoWebsocket, WebsocketFrame};
+use boomnet::ws::{Error, IntoWebsocket, WebsocketFrame};
 
 fn main() -> anyhow::Result<()> {
-    let mut ws = ReplayStream::from_file("plain_inbound.rec")?.into_websocket("wss://stream.binance.com:9443/ws");
+    let mut ws = ReplayStream::from_file("plain_inbound.rec")?.into_websocket("/ws");
 
-    let idle = IdleStrategy::Sleep(Duration::from_millis(1));
-
-    'outer: loop {
-        'inner: loop {
-            match ws.receive_next() {
-                Ok(Some(WebsocketFrame::Text(fin, data))) => {
-                    println!("({fin}) {}", String::from_utf8_lossy(data));
-                }
-                Ok(None) => break 'inner,
-                Err(err) => {
-                    println!("{}", err);
-                    break 'outer;
-                }
-                _ => {}
-            }
-            idle.idle(0);
+    fn run<F: FnOnce() -> Result<(), Error>>(f: F) -> anyhow::Result<()> {
+        match f() {
+            Err(Error::IO(io_error)) if io_error.kind() == UnexpectedEof => Ok(()),
+            Err(err) => Err(err)?,
+            _ => Ok(()),
         }
     }
+
+    run(move || loop {
+        for frame in ws.batch_iter()? {
+            if let WebsocketFrame::Text(fin, body) = frame? {
+                println!("({fin}) {}", String::from_utf8_lossy(body));
+            }
+        }
+    })?;
 
     Ok(())
 }

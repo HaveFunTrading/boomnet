@@ -5,7 +5,6 @@ use tungstenite::Utf8Bytes;
 use ::boomnet::stream::buffer::IntoBufferedStream;
 use ::boomnet::ws::IntoWebsocket;
 use boomnet::stream::ConnectionInfo;
-use boomnet::stream::record::IntoRecordedStream;
 
 mod server;
 

@@ -3,9 +3,9 @@ use std::io;
 use std::marker::PhantomData;
 
 use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
+use crate::service::node::IONode;
 use crate::service::select::{Selectable, Selector, SelectorToken};
 use crate::service::{IOService, IntoIOService, IntoIOServiceWithContext};
-use crate::service::node::IONode;
 
 pub struct DirectSelector<S> {
     next_token: u32,

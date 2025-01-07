@@ -1,6 +1,5 @@
 //! Various stream implementations on top of which protocol can be applied.
 
-use crate::inet::ToSocketAddr;
 use crate::service::select::Selectable;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::fmt::{Display, Formatter};
@@ -190,6 +189,10 @@ impl Selectable for TcpStream {
     }
 }
 
+pub trait ConnectionInfoProvider {
+    fn connection_info(&self) -> &ConnectionInfo;
+}
+
 /// TCP stream connection info.
 #[derive(Debug, Clone, Default)]
 pub struct ConnectionInfo {
@@ -281,8 +284,3 @@ impl ConnectionInfo {
         Ok(tcp::TcpStream::new(stream, self))
     }
 }
-
-pub trait ConnectionInfoProvider {
-    fn connection_info(&self) -> &ConnectionInfo;
-}
-

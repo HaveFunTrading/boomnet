@@ -1,14 +1,12 @@
-use std::io;
 use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock};
 use std::io::{Read, Write};
+use std::{io, net};
 
 use crate::service::select::Selectable;
-use crate::stream;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use mio::event::Source;
 use mio::net::TcpStream;
 use mio::{Interest, Registry, Token};
-use stream::tcp;
 
 pub struct MioStream {
     inner: TcpStream,
@@ -106,7 +104,11 @@ pub trait IntoMioStream {
     fn into_mio_stream(self) -> MioStream;
 }
 
-impl IntoMioStream for tcp::TcpStream {
+impl<T> IntoMioStream for T
+where
+    T: Into<net::TcpStream>,
+    T: ConnectionInfoProvider,
+{
     fn into_mio_stream(self) -> MioStream {
         let connection_info = self.connection_info().clone();
         MioStream::new(TcpStream::from_std(self.into()), connection_info)

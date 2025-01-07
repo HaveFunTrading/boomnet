@@ -10,10 +10,10 @@ use rustls::{ClientConnection, RootCertStore};
 
 use crate::service::select::Selectable;
 use crate::stream::buffer::BufferedStream;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "mio")]
 use crate::stream::mio::MioStream;
 use crate::stream::record::RecordedStream;
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use crate::util::NoBlock;
 
 pub struct TlsStream<S> {
@@ -117,7 +117,7 @@ impl<S: Read + Write> TlsStream<S> {
     }
 }
 
-impl <S: ConnectionInfoProvider> ConnectionInfoProvider for TlsStream<S> {
+impl<S: ConnectionInfoProvider> ConnectionInfoProvider for TlsStream<S> {
     fn connection_info(&self) -> &ConnectionInfo {
         self.inner.connection_info()
     }

@@ -1,6 +1,5 @@
 //! Entry point for the application logic.
 
-use std::fmt::Display;
 use std::io;
 use std::net::SocketAddr;
 

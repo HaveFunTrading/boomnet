@@ -1,7 +1,7 @@
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::fs::File;
 use std::io;
 use std::io::{BufWriter, Read, Write};
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 
 const DEFAULT_RECORDING_NAME: &str = "plain";
 
@@ -62,7 +62,7 @@ impl<S: Read + Write> Write for RecordedStream<S> {
     }
 }
 
-impl <S: ConnectionInfoProvider> ConnectionInfoProvider for RecordedStream<S> {
+impl<S: ConnectionInfoProvider> ConnectionInfoProvider for RecordedStream<S> {
     fn connection_info(&self) -> &ConnectionInfo {
         self.inner.connection_info()
     }

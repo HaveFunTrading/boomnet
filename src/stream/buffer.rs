@@ -1,9 +1,9 @@
 //! Stream that is buffering data written to it.
 
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::mem::MaybeUninit;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 
 /// Default buffer size in bytes.
 pub const DEFAULT_BUFFER_SIZE: usize = 1024;

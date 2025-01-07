@@ -1,82 +1,10 @@
-use std::io;
-use std::net::SocketAddr;
-use std::time::Duration;
-use url::Url;
-use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
+use crate::common::TradeEndpoint;
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOService;
-use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
-use boomnet::stream::mio::MioStream;
-use boomnet::ws::WebsocketFrame;
+use std::time::Duration;
 
-struct TradeEndpoint {
-    id: u32,
-    connection_info: ConnectionInfo,
-    net_iface: Option<SocketAddr>,
-    instrument: &'static str,
-}
-
-impl TradeEndpoint {
-    pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
-        let connection_info = Url::parse(url).try_into().unwrap();
-        let net_iface = net_iface
-            .and_then(|name| name.into_network_interface())
-            .and_then(|iface| iface.to_socket_addr());
-        Self {
-            id,
-            connection_info,
-            net_iface,
-            instrument,
-        }
-    }
-}
-
-impl ConnectionInfoProvider for TradeEndpoint {
-    fn connection_info(&self) -> &ConnectionInfo {
-        &self.connection_info
-    }
-}
-
-impl TlsWebsocketEndpoint for TradeEndpoint {
-    type Stream = MioStream;
-
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
-        todo!()
-        // let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-        //     .into_mio_stream()
-        //     .into_tls_websocket(self.url.as_str());
-        //
-        // ws.send_text(
-        //     true,
-        //     Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
-        // )?;
-        //
-        // Ok(ws)
-    }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
-            println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data));
-        }
-        Ok(())
-    }
-
-    fn can_recreate(&mut self) -> bool {
-        // this method is called by IO service upon every disconnect
-        // we can tap into it to perform any cleanup logic if required
-        println!("handling can_recreate");
-        true
-    }
-
-    fn can_auto_disconnect(&mut self) -> bool {
-        // this method is called by IO service if auto_disconnect is enabled just before
-        // disconnecting the endpoint
-        println!("handling can_auto_disconnect");
-        true
-    }
-}
+#[path = "common/mod.rs"]
+mod common;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();

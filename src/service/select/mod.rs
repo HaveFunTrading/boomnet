@@ -1,8 +1,8 @@
 //! OS specific socket event notification mechanisms like `epoll`.
 
+use crate::service::node::IONode;
 use std::collections::HashMap;
 use std::io;
-use crate::service::node::IONode;
 
 pub mod direct;
 #[cfg(feature = "mio")]

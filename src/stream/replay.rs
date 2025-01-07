@@ -1,8 +1,8 @@
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, Read, Write};
 use std::path::Path;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 
 pub struct ReplayStream<S> {
     inner: S,

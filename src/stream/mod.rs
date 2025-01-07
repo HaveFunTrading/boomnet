@@ -1,5 +1,6 @@
 //! Various stream implementations on top of which protocol can be applied.
 
+use crate::inet::{IntoNetworkInterface, ToSocketAddr};
 use crate::service::select::Selectable;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::fmt::{Display, Formatter};
@@ -259,6 +260,17 @@ impl ConnectionInfo {
     }
 
     pub fn with_net_iface(self, net_iface: SocketAddr) -> Self {
+        Self {
+            net_iface: Some(net_iface),
+            ..self
+        }
+    }
+
+    pub fn with_net_iface_from_name(self, net_iface_name: &str) -> Self {
+        let net_iface = net_iface_name
+            .into_network_interface()
+            .and_then(|iface| iface.to_socket_addr())
+            .expect("invalid network interface");
         Self {
             net_iface: Some(net_iface),
             ..self

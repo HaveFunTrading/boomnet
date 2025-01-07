@@ -1,5 +1,4 @@
 use ansi_term::Color::{Green, Purple, Red, Yellow};
-use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
@@ -30,11 +29,8 @@ pub struct TradeEndpoint {
 impl TradeEndpoint {
     pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
         let (mut connection_info, ws_endpoint, _) = boomnet::ws::util::parse_url(url).unwrap();
-        let net_iface = net_iface
-            .and_then(|name| name.into_network_interface())
-            .and_then(|iface| iface.to_socket_addr());
         if let Some(net_iface) = net_iface {
-            connection_info = connection_info.with_net_iface(net_iface);
+            connection_info = connection_info.with_net_iface_from_name(net_iface);
         }
         Self {
             id,

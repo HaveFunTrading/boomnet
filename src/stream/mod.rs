@@ -270,7 +270,7 @@ impl ConnectionInfo {
         let net_iface = net_iface_name
             .into_network_interface()
             .and_then(|iface| iface.to_socket_addr())
-            .expect("invalid network interface");
+            .unwrap_or_else(|| panic!("invalid network interface: {}", net_iface_name));
         Self {
             net_iface: Some(net_iface),
             ..self

@@ -40,13 +40,12 @@ The first layer defines `stream` as abstraction over TCP connection, adhering to
 Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.,i
 
 ```rust
-let stream: RecordedStream<TlsStream<TcpStream>> = ConnectionInfo::new(host, port)
-    .into_tcp_stream()?
+let stream: RecordedStream<TlsStream<TcpStream>> = TcpStream::try_from((host, port))?
     .into_tls_stream()
     .into_default_recorded_stream();
 ```
 
-Different protocols can then be applied on top of a stream.
+Different protocols can then be applied on top of a stream in order to create a client.
 ```rust
 let ws: Websocket<RecordedStream<TlsStream<TcpStream>>> = stream.into_websocket("/ws");
 ```
@@ -79,7 +78,7 @@ offering the following features.
 * Not blocking on partial frame(s).
 * Designed for zero-copy read and write.
 * Optional masking of outbound frames.
-* Standalone usage or in conjunction with `Selector` and `IOService`.
+* Standalone usage or in conjunction with `IOService`.
 
 ## Example Usage
 

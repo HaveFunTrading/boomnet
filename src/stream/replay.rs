@@ -1,3 +1,4 @@
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, Read, Write};
@@ -28,5 +29,11 @@ impl<S> Write for ReplayStream<S> {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+impl<S> ConnectionInfoProvider for ReplayStream<S> {
+    fn connection_info(&self) -> &ConnectionInfo {
+        Box::leak(Box::new(ConnectionInfo::default()))
     }
 }

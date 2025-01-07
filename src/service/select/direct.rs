@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::io;
 use std::marker::PhantomData;
 
-use crate::endpoint::{Context, Endpoint, EndpointWithContext};
-use crate::node::IONode;
-use crate::select::{Selectable, Selector, SelectorToken};
+use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
+use crate::service::node::IONode;
+use crate::service::select::{Selectable, Selector, SelectorToken};
 use crate::service::{IOService, IntoIOService, IntoIOServiceWithContext};
 
 pub struct DirectSelector<S> {

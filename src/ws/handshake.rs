@@ -8,7 +8,6 @@ use base64::Engine;
 use http::StatusCode;
 use httparse::Response;
 use rand::{thread_rng, Rng};
-use url::Url;
 
 use crate::buffer::ReadBuffer;
 use crate::ws::handshake::HandshakeState::{Completed, NotStarted, Pending};
@@ -18,7 +17,8 @@ use crate::ws::Error;
 pub struct Handshaker {
     buffer: ReadBuffer<1>,
     state: HandshakeState,
-    url: Url,
+    host: String,
+    endpoint: String,
     pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
 }
 
@@ -30,14 +30,14 @@ pub enum HandshakeState {
 }
 
 impl Handshaker {
-    pub fn new(url: &str) -> Result<Self, Error> {
-        let url = Url::parse(url)?;
-        Ok(Self {
+    pub fn new(host: &str, endpoint: &str) -> Self {
+        Self {
             buffer: ReadBuffer::new(),
             state: NotStarted,
-            url,
+            host: host.to_string(),
+            endpoint: endpoint.to_string(),
             pending_msg_buffer: VecDeque::with_capacity(256),
-        })
+        }
     }
 
     #[cold]
@@ -94,8 +94,8 @@ impl Handshaker {
     }
 
     fn send_handshake_request<S: Write>(&mut self, stream: &mut S) -> io::Result<()> {
-        stream.write_all(format!("GET {} HTTP/1.1\r\n", self.url.path()).as_bytes())?;
-        stream.write_all(format!("Host: {}\r\n", self.url.host_str().unwrap()).as_bytes())?;
+        stream.write_all(format!("GET {} HTTP/1.1\r\n", self.endpoint).as_bytes())?;
+        stream.write_all(format!("Host: {}\r\n", self.host).as_bytes())?;
         stream.write_all(b"Upgrade: websocket\r\n")?;
         stream.write_all(b"Connection: upgrade\r\n")?;
         stream.write_all(format!("Sec-WebSocket-Key: {}\r\n", generate_nonce()).as_bytes())?;

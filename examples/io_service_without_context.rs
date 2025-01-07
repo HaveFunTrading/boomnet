@@ -1,65 +1,9 @@
-use std::io;
-use std::net::{SocketAddr, TcpStream};
-
-use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
-use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::select::mio::MioSelector;
+use crate::common::TradeEndpoint;
+use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOService;
-use boomnet::stream::mio::{IntoMioStream, MioStream};
-use boomnet::stream::BindAndConnect;
-use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 
-struct TradeEndpoint {
-    id: u32,
-    url: &'static str,
-    net_iface: Option<SocketAddr>,
-    instrument: &'static str,
-}
-
-impl TradeEndpoint {
-    pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
-        let net_iface = net_iface
-            .and_then(|name| name.into_network_interface())
-            .and_then(|iface| iface.to_socket_addr());
-        Self {
-            id,
-            url,
-            net_iface,
-            instrument,
-        }
-    }
-}
-
-impl TlsWebsocketEndpoint for TradeEndpoint {
-    type Stream = MioStream;
-
-    fn url(&self) -> &str {
-        self.url
-    }
-
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
-            .into_mio_stream()
-            .into_tls_websocket(self.url);
-
-        ws.send_text(
-            true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
-        )?;
-
-        Ok(ws)
-    }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        for frame in ws.batch_iter()? {
-            if let WebsocketFrame::Text(fin, data) = frame? {
-                println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data));
-            }
-        }
-        Ok(())
-    }
-}
+#[path = "common/mod.rs"]
+mod common;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();

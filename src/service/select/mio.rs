@@ -6,9 +6,9 @@ use std::time::Duration;
 use mio::event::Source;
 use mio::{Events, Interest, Poll, Token};
 
-use crate::endpoint::{Context, Endpoint, EndpointWithContext};
-use crate::node::IONode;
-use crate::select::{Selectable, Selector, SelectorToken};
+use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
+use crate::service::node::IONode;
+use crate::service::select::{Selectable, Selector, SelectorToken};
 use crate::service::{IOService, IntoIOService, IntoIOServiceWithContext};
 
 const NO_WAIT: Option<Duration> = Some(Duration::from_millis(0));

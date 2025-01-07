@@ -1,51 +1,47 @@
 use std::io;
 use std::io::ErrorKind::Other;
 use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::sync::Arc;
 
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
 use rustls::{ClientConnection, RootCertStore};
 
-use crate::select::Selectable;
-use crate::stream::buffer::BufferedStream;
-#[cfg(feature = "mio")]
-use crate::stream::mio::MioStream;
-use crate::stream::record::RecordedStream;
+use crate::service::select::Selectable;
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use crate::util::NoBlock;
 
 pub struct TlsStream<S> {
-    stream: S,
+    inner: S,
     tls: ClientConnection,
 }
 
 #[cfg(feature = "mio")]
 impl<S: Source> Source for TlsStream<S> {
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-        registry.register(&mut self.stream, token, interests)
+        registry.register(&mut self.inner, token, interests)
     }
 
     fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-        registry.reregister(&mut self.stream, token, interests)
+        registry.reregister(&mut self.inner, token, interests)
     }
 
     fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
-        registry.deregister(&mut self.stream)
+        registry.deregister(&mut self.inner)
     }
 }
 
 impl<S: Selectable> Selectable for TlsStream<S> {
     fn connected(&mut self) -> io::Result<bool> {
-        self.stream.connected()
+        self.inner.connected()
     }
 
     fn make_writable(&mut self) {
-        self.stream.make_writable()
+        self.inner.make_writable()
     }
 
     fn make_readable(&mut self) {
-        self.stream.make_readable()
+        self.inner.make_readable()
     }
 }
 
@@ -90,18 +86,18 @@ impl<S: Read + Write> TlsStream<S> {
 
         let tls = ClientConnection::new(Arc::new(config), server_name.to_owned().try_into().unwrap()).unwrap();
 
-        Self { stream, tls }
+        Self { inner: stream, tls }
     }
 
     fn complete_io(&mut self) -> io::Result<(usize, usize)> {
         let wrote = if self.tls.wants_write() {
-            self.tls.write_tls(&mut self.stream)?
+            self.tls.write_tls(&mut self.inner)?
         } else {
             0
         };
 
         let read = if self.tls.wants_read() {
-            let read = self.tls.read_tls(&mut self.stream).no_block()?;
+            let read = self.tls.read_tls(&mut self.inner).no_block()?;
             if read > 0 {
                 self.tls
                     .process_new_packets()
@@ -113,6 +109,12 @@ impl<S: Read + Write> TlsStream<S> {
         };
 
         Ok((read, wrote))
+    }
+}
+
+impl<S: ConnectionInfoProvider> ConnectionInfoProvider for TlsStream<S> {
+    fn connection_info(&self) -> &ConnectionInfo {
+        self.inner.connection_info()
     }
 }
 
@@ -143,6 +145,15 @@ impl<S: Read + Write> Write for TlsReadyStream<S> {
         match self {
             TlsReadyStream::Plain(stream) => stream.flush(),
             TlsReadyStream::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
+impl<S: ConnectionInfoProvider> ConnectionInfoProvider for TlsReadyStream<S> {
+    fn connection_info(&self) -> &ConnectionInfo {
+        match self {
+            TlsReadyStream::Plain(stream) => stream.connection_info(),
+            TlsReadyStream::Tls(stream) => stream.connection_info(),
         }
     }
 }
@@ -194,31 +205,21 @@ impl<S: Selectable> Selectable for TlsReadyStream<S> {
     }
 }
 
-pub trait NotTlsStream {}
-
-impl NotTlsStream for TcpStream {}
-
-impl<S> NotTlsStream for RecordedStream<S> {}
-
-impl<S> NotTlsStream for BufferedStream<S> {}
-
-#[cfg(feature = "mio")]
-impl NotTlsStream for MioStream {}
-
 pub trait IntoTlsStream {
-    fn into_tls_stream(self, server_name: &str) -> TlsStream<Self>
+    fn into_tls_stream(self) -> TlsStream<Self>
     where
         Self: Sized;
 }
 
 impl<T> IntoTlsStream for T
 where
-    T: Read + Write + NotTlsStream,
+    T: Read + Write + ConnectionInfoProvider,
 {
-    fn into_tls_stream(self, server_name: &str) -> TlsStream<Self>
+    fn into_tls_stream(self) -> TlsStream<Self>
     where
         Self: Sized,
     {
-        TlsStream::wrap(self, server_name)
+        let server_name = self.connection_info().clone().host;
+        TlsStream::wrap(self, &server_name)
     }
 }

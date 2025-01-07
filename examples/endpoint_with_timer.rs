@@ -1,41 +1,31 @@
 use std::io;
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use log::info;
-
-use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
-use boomnet::endpoint::Context;
-use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::select::mio::MioSelector;
+use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
+use boomnet::service::endpoint::Context;
+use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
-use boomnet::stream::BindAndConnect;
+use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
+use log::info;
+use url::Url;
 
 /// This example demonstrates how to implement explicit timer inside the endpoint. Since endpoint
 /// poll method is called on every cycle by the io service we can implement timer functionality
 /// directly inside the endpoint. In this case, the endpoint will keep disconnecting every 10s.
 struct TradeEndpoint {
-    url: &'static str,
-    net_iface: Option<SocketAddr>,
+    connection_info: ConnectionInfo,
     instrument: &'static str,
     next_disconnect_time_ns: u64,
 }
 
 impl TradeEndpoint {
-    pub fn new(
-        url: &'static str,
-        net_iface: Option<&'static str>,
-        instrument: &'static str,
-        ctx: &FeedContext,
-    ) -> TradeEndpoint {
-        let net_iface = net_iface
-            .and_then(|name| name.into_network_interface())
-            .and_then(|iface| iface.to_socket_addr());
+    pub fn new(url: &'static str, instrument: &'static str, ctx: &FeedContext) -> TradeEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         Self {
-            url,
-            net_iface,
+            connection_info,
             instrument,
             next_disconnect_time_ns: ctx.current_time_ns() + Duration::from_secs(10).as_nanos() as u64,
         }
@@ -57,17 +47,22 @@ impl FeedContext {
     }
 }
 
+impl ConnectionInfoProvider for TradeEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
 impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     type Stream = MioStream;
 
-    fn url(&self) -> &str {
-        self.url
-    }
-
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+        let mut ws = self
+            .connection_info
+            .clone()
+            .into_tcp_stream_with_addr(addr)?
             .into_mio_stream()
-            .into_tls_websocket(self.url);
+            .into_tls_websocket("/ws");
 
         ws.send_text(
             true,
@@ -98,7 +93,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut io_service = MioSelector::new()?.into_io_service_with_context(&mut ctx);
 
-    let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", None, "btcusdt", &ctx);
+    let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", "btcusdt", &ctx);
 
     io_service.register(endpoint_btc);
 

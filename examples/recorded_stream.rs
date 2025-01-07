@@ -1,37 +1,27 @@
-use idle::IdleStrategy;
-use std::net::TcpStream;
-use std::time::Duration;
-
 use boomnet::stream::record::IntoRecordedStream;
 use boomnet::stream::tls::IntoTlsStream;
+use boomnet::stream::ConnectionInfo;
 use boomnet::ws::{IntoWebsocket, WebsocketFrame};
+use idle::IdleStrategy;
+use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
-    let mut ws = TcpStream::connect("stream.binance.com:9443")?
-        .into_tls_stream("stream.binance.com")
-        .into_recorded_stream("plain")
-        .into_websocket("wss://stream.binance.com:9443/ws");
+    let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
+        .into_tcp_stream()?
+        .into_tls_stream()
+        .into_default_recorded_stream()
+        .into_websocket("/ws");
 
     ws.send_text(true, Some(r#"{"method":"SUBSCRIBE","params":["btcusdt@trade"],"id":1}"#.to_string().as_bytes()))?;
 
     let idle = IdleStrategy::Sleep(Duration::from_millis(1));
 
-    'outer: loop {
-        'inner: loop {
-            match ws.receive_next() {
-                Ok(Some(WebsocketFrame::Text(fin, data))) => {
-                    println!("({fin}) {}", String::from_utf8_lossy(data));
-                }
-                Ok(None) => break 'inner,
-                Err(err) => {
-                    println!("{}", err);
-                    break 'outer;
-                }
-                _ => {}
+    loop {
+        for frame in ws.batch_iter()? {
+            if let WebsocketFrame::Text(fin, body) = frame? {
+                println!("({fin}) {}", String::from_utf8_lossy(body));
             }
-            idle.idle(0);
         }
+        idle.idle(0);
     }
-
-    Ok(())
 }

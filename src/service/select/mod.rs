@@ -1,6 +1,6 @@
 //! OS specific socket event notification mechanisms like `epoll`.
 
-use crate::node::IONode;
+use crate::service::node::IONode;
 use std::collections::HashMap;
 use std::io;
 

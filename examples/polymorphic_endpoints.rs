@@ -4,89 +4,84 @@ use std::io;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-use idle::IdleStrategy;
-use log::info;
-
-use boomnet::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpointWithContext};
-use boomnet::endpoint::Context;
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::select::mio::MioSelector;
-use boomnet::service::IntoIOServiceWithContext;
+use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
+use boomnet::service::endpoint::Context;
+use boomnet::service::select::mio::MioSelector;
+use boomnet::service::{IntoIOService, IntoIOServiceWithContext};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tls::TlsStream;
-use boomnet::stream::BindAndConnect;
+use boomnet::stream::{BindAndConnect, ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
-
-struct FeedContext;
-
-impl Context for FeedContext {}
+use idle::IdleStrategy;
+use log::info;
+use url::Url;
 
 enum MarketDataEndpoint {
     Trade(TradeEndpoint),
     Ticker(TickerEndpoint),
 }
 
-impl TlsWebsocketEndpointWithContext<FeedContext> for MarketDataEndpoint {
+impl ConnectionInfoProvider for MarketDataEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        match self {
+            MarketDataEndpoint::Ticker(ticker) => ticker.connection_info(),
+            MarketDataEndpoint::Trade(trade) => trade.connection_info(),
+        }
+    }
+}
+
+impl TlsWebsocketEndpoint for MarketDataEndpoint {
     type Stream = MioStream;
 
-    fn url(&self) -> &str {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Websocket<TlsStream<Self::Stream>>> {
         match self {
-            MarketDataEndpoint::Ticker(ticker) => ticker.url(),
-            MarketDataEndpoint::Trade(trade) => trade.url(),
+            MarketDataEndpoint::Ticker(ticker) => ticker.create_websocket(addr),
+            MarketDataEndpoint::Trade(trade) => trade.create_websocket(addr),
         }
     }
 
-    fn create_websocket(
-        &mut self,
-        addr: SocketAddr,
-        context: &mut FeedContext,
-    ) -> io::Result<Websocket<TlsStream<Self::Stream>>> {
+    fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()> {
         match self {
-            MarketDataEndpoint::Ticker(ticker) => ticker.create_websocket(addr, context),
-            MarketDataEndpoint::Trade(trade) => trade.create_websocket(addr, context),
-        }
-    }
-
-    fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut FeedContext) -> io::Result<()> {
-        match self {
-            MarketDataEndpoint::Ticker(ticker) => TlsWebsocketEndpointWithContext::poll(ticker, ws, ctx),
-            MarketDataEndpoint::Trade(trade) => TlsWebsocketEndpointWithContext::poll(trade, ws, ctx),
+            MarketDataEndpoint::Ticker(ticker) => TlsWebsocketEndpoint::poll(ticker, ws),
+            MarketDataEndpoint::Trade(trade) => TlsWebsocketEndpoint::poll(trade, ws),
         }
     }
 }
 
 struct TradeEndpoint {
     id: u32,
-    url: &'static str,
-    net_iface: Option<SocketAddr>,
+    connection_info: ConnectionInfo,
     instrument: &'static str,
 }
 
 impl TradeEndpoint {
-    pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
-        let net_iface = net_iface
-            .and_then(|name| name.into_network_interface())
-            .and_then(|iface| iface.to_socket_addr());
+    pub fn new(id: u32, url: &'static str, instrument: &'static str) -> TradeEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         Self {
             id,
-            url,
-            net_iface,
+            connection_info,
             instrument,
         }
     }
 }
 
-impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
+impl ConnectionInfoProvider for TradeEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
+impl TlsWebsocketEndpoint for TradeEndpoint {
     type Stream = MioStream;
 
-    fn url(&self) -> &str {
-        self.url
-    }
-
-    fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+        let mut ws = self
+            .connection_info
+            .clone()
+            .into_tcp_stream_with_addr(addr)?
             .into_mio_stream()
-            .into_tls_websocket(self.url);
+            .into_tls_websocket("/ws");
 
         ws.send_text(
             true,
@@ -97,7 +92,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     }
 
     #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
+    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
         while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
             info!("({fin}) {}", String::from_utf8_lossy(data));
         }
@@ -107,41 +102,37 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
 struct TickerEndpoint {
     id: u32,
-    url: &'static str,
-    net_iface: Option<SocketAddr>,
+    connection_info: ConnectionInfo,
     instrument: &'static str,
 }
 
 impl TickerEndpoint {
-    pub fn new(
-        id: u32,
-        url: &'static str,
-        net_iface: Option<&'static str>,
-        instrument: &'static str,
-    ) -> TickerEndpoint {
-        let net_iface = net_iface
-            .and_then(|name| name.into_network_interface())
-            .and_then(|iface| iface.to_socket_addr());
+    pub fn new(id: u32, url: &'static str, instrument: &'static str) -> TickerEndpoint {
+        let connection_info = Url::parse(url).try_into().unwrap();
         Self {
             id,
-            url,
-            net_iface,
+            connection_info,
             instrument,
         }
     }
 }
 
-impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
+impl ConnectionInfoProvider for TickerEndpoint {
+    fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
+}
+
+impl TlsWebsocketEndpoint for TickerEndpoint {
     type Stream = MioStream;
 
-    fn url(&self) -> &str {
-        self.url
-    }
-
-    fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
-        let mut ws = TcpStream::bind_and_connect(addr, self.net_iface, None)?
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+        let mut ws = self
+            .connection_info
+            .clone()
+            .into_tcp_stream_with_addr(addr)?
             .into_mio_stream()
-            .into_tls_websocket(self.url);
+            .into_tls_websocket("/ws");
 
         ws.send_text(
             true,
@@ -152,7 +143,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
     }
 
     #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
+    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
         #[allow(deprecated)]
         while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
             info!("({fin}) {}", String::from_utf8_lossy(data));
@@ -164,17 +155,15 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TickerEndpoint {
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let mut context = FeedContext;
+    let mut io_service = MioSelector::new()?.into_io_service();
 
-    let mut io_service = MioSelector::new()?.into_io_service_with_context(&mut context);
-
-    let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new(0, "wss://stream.binance.com:443/ws", None, "btcusdt"));
-    let trade = MarketDataEndpoint::Trade(TradeEndpoint::new(1, "wss://stream.binance.com:443/ws", None, "ethusdt"));
+    let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new(0, "wss://stream.binance.com:443/ws", "btcusdt"));
+    let trade = MarketDataEndpoint::Trade(TradeEndpoint::new(1, "wss://stream.binance.com:443/ws", "ethusdt"));
 
     io_service.register(ticker);
     io_service.register(trade);
 
     loop {
-        io_service.poll(&mut context)?;
+        io_service.poll()?;
     }
 }

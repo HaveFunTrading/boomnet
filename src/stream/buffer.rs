@@ -1,5 +1,6 @@
 //! Stream that is buffering data written to it.
 
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::mem::MaybeUninit;
@@ -17,29 +18,31 @@ pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 /// Wrap with default BufferedStream`.
 ///
 /// ``` no_run
-/// use std::net::TcpStream;
 /// use boomnet::stream::buffer::IntoBufferedStream;
+/// use boomnet::stream::ConnectionInfo;
 /// use boomnet::stream::tls::IntoTlsStream;
 /// use boomnet::ws::IntoWebsocket;
 ///
-/// let mut ws = TcpStream::connect("stream.binance.com:9443").unwrap()
-///  .into_tls_stream("stream.binance.com")
+/// let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
+///  .into_tcp_stream().unwrap()
+///  .into_tls_stream()
 ///  .into_default_buffered_stream()
-///  .into_websocket("wss://stream.binance.com:9443/ws");
+///  .into_websocket("/ws");
 /// ```
 ///
 /// Specify buffer size when wrapping.
 ///
 /// ``` no_run
-/// use std::net::TcpStream;
 /// use boomnet::stream::buffer::IntoBufferedStream;
+/// use boomnet::stream::ConnectionInfo;
 /// use boomnet::stream::tls::IntoTlsStream;
 /// use boomnet::ws::IntoWebsocket;
 ///
-/// let mut ws = TcpStream::connect("stream.binance.com:9443").unwrap()
-///  .into_tls_stream("stream.binance.com")
+/// let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
+///  .into_tcp_stream().unwrap()
+///  .into_tls_stream()
 ///  .into_buffered_stream::<512>()
-///  .into_websocket("wss://stream.binance.com:9443/ws");
+///  .into_websocket("/ws");
 /// ```
 pub struct BufferedStream<S, const N: usize = DEFAULT_BUFFER_SIZE> {
     inner: S,
@@ -77,6 +80,12 @@ impl<S: Write, const N: usize> Write for BufferedStream<S, N> {
     }
 }
 
+impl<S: ConnectionInfoProvider, const N: usize> ConnectionInfoProvider for BufferedStream<S, N> {
+    fn connection_info(&self) -> &ConnectionInfo {
+        self.inner.connection_info()
+    }
+}
+
 /// Trait to convert any stream into `BufferedStream`.
 pub trait IntoBufferedStream<S> {
     /// Convert into `BufferedStream` and specify buffer length.
@@ -93,7 +102,7 @@ pub trait IntoBufferedStream<S> {
 
 impl<T> IntoBufferedStream<T> for T
 where
-    T: Read + Write,
+    T: Read + Write + ConnectionInfoProvider,
 {
     fn into_buffered_stream<const N: usize>(self) -> BufferedStream<T, N> {
         unsafe {

@@ -8,10 +8,15 @@ use std::time::Duration;
 
 use log::{error, warn};
 
-use crate::endpoint::{Context, Endpoint, EndpointWithContext};
-use crate::node::IONode;
-use crate::select::{Selector, SelectorToken};
+use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
+use crate::service::node::IONode;
+use crate::service::select::{Selector, SelectorToken};
+use crate::stream::ConnectionInfo;
 use crate::util::current_time_nanos;
+
+pub mod endpoint;
+mod node;
+pub mod select;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 
@@ -70,8 +75,9 @@ impl<S: Selector, E, C> IOService<S, E, C> {
         self.pending_endpoints.push_back(endpoint)
     }
 
-    fn resolve_dns(addr: &str) -> io::Result<SocketAddr> {
-        addr.to_socket_addrs()?
+    fn resolve_dns(connection_info: &ConnectionInfo) -> io::Result<SocketAddr> {
+        connection_info
+            .to_socket_addrs()?
             .next()
             .ok_or_else(|| io::Error::other("unable to resolve dns address"))
     }
@@ -92,7 +98,7 @@ where
             let current_time_ns = current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
                 if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
-                    let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
+                    let addr = Self::resolve_dns(endpoint.connection_info())?;
                     let stream = endpoint.create_target(addr)?;
                     let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
                     let token = self.selector.register(&mut io_node)?;
@@ -169,7 +175,7 @@ where
             let current_time_ns = current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
                 if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
-                    let addr = Self::resolve_dns(&endpoint.connection_info()?.to_string())?;
+                    let addr = Self::resolve_dns(endpoint.connection_info())?;
                     let stream = endpoint.create_target(addr, context)?;
                     let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
                     let token = self.selector.register(&mut io_node)?;

@@ -1,11 +1,11 @@
 //! Various stream implementations on top of which protocol can be applied.
 
-use std::io;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-
+use crate::service::select::Selectable;
 use socket2::{Domain, Protocol, Socket, Type};
-
-use crate::select::Selectable;
+use std::fmt::{Display, Formatter};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::{io, vec};
+use url::{ParseError, Url};
 
 pub mod buffer;
 pub mod file;
@@ -13,6 +13,7 @@ pub mod file;
 pub mod mio;
 pub mod record;
 pub mod replay;
+pub mod tcp;
 #[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
 pub mod tls;
 
@@ -185,5 +186,101 @@ impl Selectable for TcpStream {
 
     fn make_readable(&mut self) {
         // no-op
+    }
+}
+
+pub trait ConnectionInfoProvider {
+    fn connection_info(&self) -> &ConnectionInfo;
+}
+
+/// TCP stream connection info.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectionInfo {
+    host: String,
+    port: u16,
+    net_iface: Option<SocketAddr>,
+    cpu: Option<usize>,
+}
+
+impl ToSocketAddrs for ConnectionInfo {
+    type Iter = vec::IntoIter<SocketAddr>;
+
+    fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
+        format!("{}:{}", self.host, self.port).to_socket_addrs()
+    }
+}
+
+impl Display for ConnectionInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
+}
+
+impl TryFrom<Url> for ConnectionInfo {
+    type Error = io::Error;
+
+    fn try_from(url: Url) -> Result<Self, Self::Error> {
+        Ok(ConnectionInfo {
+            host: url
+                .host_str()
+                .ok_or_else(|| io::Error::other("host not present"))?
+                .to_owned(),
+            port: url
+                .port_or_known_default()
+                .ok_or_else(|| io::Error::other("port not present"))?,
+            net_iface: None,
+            cpu: None,
+        })
+    }
+}
+
+impl TryFrom<Result<Url, ParseError>> for ConnectionInfo {
+    type Error = io::Error;
+
+    fn try_from(result: Result<Url, ParseError>) -> Result<Self, Self::Error> {
+        match result {
+            Ok(url) => Ok(url.try_into()?),
+            Err(err) => Err(io::Error::other(err)),
+        }
+    }
+}
+
+impl ConnectionInfo {
+    pub fn new(host: impl AsRef<str>, port: u16) -> Self {
+        Self {
+            host: host.as_ref().to_string(),
+            port,
+            net_iface: None,
+            cpu: None,
+        }
+    }
+
+    pub fn with_net_iface(self, net_iface: SocketAddr) -> Self {
+        Self {
+            net_iface: Some(net_iface),
+            ..self
+        }
+    }
+
+    pub fn with_cpu(self, cpu: usize) -> Self {
+        Self { cpu: Some(cpu), ..self }
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn into_tcp_stream(self) -> io::Result<tcp::TcpStream> {
+        let stream = TcpStream::bind_and_connect(&self, self.net_iface, self.cpu)?;
+        Ok(tcp::TcpStream::new(stream, self))
+    }
+
+    pub fn into_tcp_stream_with_addr(self, addr: SocketAddr) -> io::Result<tcp::TcpStream> {
+        let stream = TcpStream::bind_and_connect(addr, self.net_iface, self.cpu)?;
+        Ok(tcp::TcpStream::new(stream, self))
     }
 }

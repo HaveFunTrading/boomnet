@@ -18,29 +18,31 @@ pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 /// Wrap with default BufferedStream`.
 ///
 /// ``` no_run
-/// use std::net::TcpStream;
 /// use boomnet::stream::buffer::IntoBufferedStream;
+/// use boomnet::stream::ConnectionInfo;
 /// use boomnet::stream::tls::IntoTlsStream;
 /// use boomnet::ws::IntoWebsocket;
 ///
-/// let mut ws = TcpStream::connect("stream.binance.com:9443").unwrap()
-///  .into_tls_stream("stream.binance.com")
+/// let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
+///  .into_tcp_stream().unwrap()
+///  .into_tls_stream()
 ///  .into_default_buffered_stream()
-///  .into_websocket("wss://stream.binance.com:9443/ws");
+///  .into_websocket("/ws");
 /// ```
 ///
 /// Specify buffer size when wrapping.
 ///
 /// ``` no_run
-/// use std::net::TcpStream;
 /// use boomnet::stream::buffer::IntoBufferedStream;
+/// use boomnet::stream::ConnectionInfo;
 /// use boomnet::stream::tls::IntoTlsStream;
 /// use boomnet::ws::IntoWebsocket;
 ///
-/// let mut ws = TcpStream::connect("stream.binance.com:9443").unwrap()
-///  .into_tls_stream("stream.binance.com")
+/// let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
+///  .into_tcp_stream().unwrap()
+///  .into_tls_stream()
 ///  .into_buffered_stream::<512>()
-///  .into_websocket("wss://stream.binance.com:9443/ws");
+///  .into_websocket("/ws");
 /// ```
 pub struct BufferedStream<S, const N: usize = DEFAULT_BUFFER_SIZE> {
     inner: S,
@@ -78,7 +80,7 @@ impl<S: Write, const N: usize> Write for BufferedStream<S, N> {
     }
 }
 
-impl<S: ConnectionInfoProvider> ConnectionInfoProvider for BufferedStream<S> {
+impl<S: ConnectionInfoProvider, const N: usize> ConnectionInfoProvider for BufferedStream<S, N> {
     fn connection_info(&self) -> &ConnectionInfo {
         self.inner.connection_info()
     }

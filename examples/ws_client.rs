@@ -1,8 +1,7 @@
-use idle::IdleStrategy;
-use std::time::Duration;
-
 use boomnet::stream::ConnectionInfo;
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
+use idle::IdleStrategy;
+use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
     let mut ws = ConnectionInfo::new("stream.binance.com", 9443)

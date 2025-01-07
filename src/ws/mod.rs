@@ -3,17 +3,18 @@
 //! ## Examples
 //!
 //! Create a TLS websocket from a stream.
-//! ```no_run
+//!```no_run
 //! use std::net::TcpStream;
-//! use boomnet::stream::BindAndConnect;
+//! use boomnet::stream::{BindAndConnect, ConnectionInfo};
 //! use boomnet::stream::buffer::IntoBufferedStream;
 //! use boomnet::stream::tls::IntoTlsStream;
 //! use boomnet::ws::IntoWebsocket;
 //!
-//! let mut ws = TcpStream::bind_and_connect("stream.binance.com:9443", None, None).unwrap()
-//! .into_tls_stream("stream.binance.com")
+//! let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
+//! .into_tcp_stream().unwrap()
+//! .into_tls_stream()
 //! .into_default_buffered_stream()
-//! .into_websocket("wss://stream.binance.com:9443/ws");
+//! .into_websocket("/ws");
 //! ```
 //!
 //! Quickly create websocket from a valid url (for debugging purposes only).

@@ -3,13 +3,19 @@ use std::io::ErrorKind::Other;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-#[cfg(feature = "mio")]
-use mio::{event::Source, Interest, Registry, Token};
-use rustls::{ClientConnection, RootCertStore};
-
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use crate::util::NoBlock;
+#[cfg(feature = "mio")]
+use mio::{event::Source, Interest, Registry, Token};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::SignatureScheme::{
+    ECDSA_SHA1_Legacy, ECDSA_NISTP256_SHA256, ECDSA_NISTP384_SHA384, ECDSA_NISTP521_SHA512, ED25519, ED448,
+    RSA_PKCS1_SHA1, RSA_PKCS1_SHA256, RSA_PKCS1_SHA384, RSA_PKCS1_SHA512, RSA_PSS_SHA256, RSA_PSS_SHA384,
+    RSA_PSS_SHA512,
+};
+use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, RootCertStore, SignatureScheme};
 
 pub struct TlsStream<S> {
     inner: S,
@@ -63,7 +69,10 @@ impl<S: Read + Write> Write for TlsStream<S> {
 }
 
 impl<S: Read + Write> TlsStream<S> {
-    pub fn wrap(stream: S, server_name: &str) -> TlsStream<S> {
+    pub fn wrap_with_config<F>(stream: S, server_name: &str, builder: F) -> TlsStream<S>
+    where
+        F: FnOnce(&mut ClientConfig),
+    {
         #[cfg(not(all(feature = "rustls-native-certs", feature = "webpki-roots")))]
         let mut root_store = RootCertStore::empty();
 
@@ -80,13 +89,19 @@ impl<S: Read + Write> TlsStream<S> {
             }
         }
 
-        let config = rustls::ClientConfig::builder()
+        let mut config = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
+
+        builder(&mut config);
 
         let tls = ClientConnection::new(Arc::new(config), server_name.to_owned().try_into().unwrap()).unwrap();
 
         Self { inner: stream, tls }
+    }
+
+    pub fn wrap(stream: S, server_name: &str) -> TlsStream<S> {
+        Self::wrap_with_config(stream, server_name, |_| {})
     }
 
     fn complete_io(&mut self) -> io::Result<(usize, usize)> {
@@ -208,18 +223,89 @@ impl<S: Selectable> Selectable for TlsReadyStream<S> {
 pub trait IntoTlsStream {
     fn into_tls_stream(self) -> TlsStream<Self>
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        self.into_tls_stream_with_config(|_| {})
+    }
+
+    fn into_tls_stream_with_config<F>(self, builder: F) -> TlsStream<Self>
+    where
+        Self: Sized,
+        F: FnOnce(&mut ClientConfig);
 }
 
 impl<T> IntoTlsStream for T
 where
     T: Read + Write + ConnectionInfoProvider,
 {
-    fn into_tls_stream(self) -> TlsStream<Self>
+    fn into_tls_stream_with_config<F>(self, builder: F) -> TlsStream<Self>
     where
         Self: Sized,
+        F: FnOnce(&mut ClientConfig),
     {
         let server_name = self.connection_info().clone().host;
-        TlsStream::wrap(self, &server_name)
+        TlsStream::wrap_with_config(self, &server_name, builder)
+    }
+}
+
+pub trait ClientConfigExt {
+    fn with_no_cert_verification(&mut self);
+}
+
+impl ClientConfigExt for ClientConfig {
+    fn with_no_cert_verification(&mut self) {
+        self.dangerous().set_certificate_verifier(Arc::new(NoCertVerification))
+    }
+}
+
+#[derive(Debug)]
+struct NoCertVerification;
+
+impl ServerCertVerifier for NoCertVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            RSA_PKCS1_SHA1,
+            ECDSA_SHA1_Legacy,
+            RSA_PKCS1_SHA256,
+            ECDSA_NISTP256_SHA256,
+            RSA_PKCS1_SHA384,
+            ECDSA_NISTP384_SHA384,
+            RSA_PKCS1_SHA512,
+            ECDSA_NISTP521_SHA512,
+            RSA_PSS_SHA256,
+            RSA_PSS_SHA384,
+            RSA_PSS_SHA512,
+            ED25519,
+            ED448,
+        ]
     }
 }

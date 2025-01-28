@@ -17,6 +17,9 @@ fn boomnet_rtt_benchmark(c: &mut Criterion) {
     // run server in the background
     server::start_on_thread(9002);
 
+    // affinity
+    core_affinity::set_for_current(core_affinity::CoreId { id: 8 });
+
     // setup client
     let mut ws = ConnectionInfo::new("127.0.0.1", 9002)
         .into_tcp_stream()
@@ -44,6 +47,9 @@ fn tungstenite_rtt_benchmark(c: &mut Criterion) {
 
     // run server in the background
     server::start_on_thread(9001);
+
+    // affinity
+    core_affinity::set_for_current(core_affinity::CoreId { id: 10 });
 
     // setup client
     let (mut ws, _) = connect("ws://127.0.0.1:9001").unwrap();

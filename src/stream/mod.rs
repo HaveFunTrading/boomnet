@@ -248,6 +248,13 @@ impl TryFrom<Result<Url, ParseError>> for ConnectionInfo {
     }
 }
 
+impl From<(&str, u16)> for ConnectionInfo {
+    fn from(host_and_port: (&str, u16)) -> Self {
+        let (host, port) = host_and_port;
+        Self::new(host, port)
+    }
+}
+
 impl ConnectionInfo {
     pub fn new(host: impl AsRef<str>, port: u16) -> Self {
         Self {

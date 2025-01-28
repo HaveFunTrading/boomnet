@@ -220,7 +220,17 @@ impl<S: Selectable> Selectable for TlsReadyStream<S> {
     }
 }
 
+/// Trait to convert underlying stream into [TlsStream].
 pub trait IntoTlsStream {
+    /// Convert underlying stream into [TlsStream] with default tls config.
+    ///
+    /// ## Examples
+    /// ```no_run
+    /// use boomnet::stream::tcp::TcpStream;
+    /// use boomnet::stream::tls::IntoTlsStream;
+    ///
+    /// let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_tls_stream();
+    /// ```
     fn into_tls_stream(self) -> TlsStream<Self>
     where
         Self: Sized,
@@ -228,6 +238,17 @@ pub trait IntoTlsStream {
         self.into_tls_stream_with_config(|_| {})
     }
 
+    /// Convert underlying stream into [TlsStream] and modify tls config.
+    ///
+    /// ## Examples
+    /// ```no_run
+    /// use boomnet::stream::tcp::TcpStream;
+    /// use boomnet::stream::tls::{ClientConfigExt, IntoTlsStream};
+    ///
+    /// let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_tls_stream_with_config(|config| {
+    ///     config.with_no_cert_verification();
+    /// });
+    /// ```
     fn into_tls_stream_with_config<F>(self, builder: F) -> TlsStream<Self>
     where
         Self: Sized,

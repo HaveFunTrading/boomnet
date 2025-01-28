@@ -52,6 +52,7 @@ ansi_term = "0.12.1"
 tungstenite = "0.26.1"
 criterion = "0.5.1"
 idle = "0.2.0"
+core_affinity = "0.8.1"
 
 [lints.clippy]
 uninit_assumed_init = "allow"

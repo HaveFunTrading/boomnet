@@ -22,8 +22,7 @@ impl TryFrom<(&str, u16)> for TcpStream {
     type Error = io::Error;
 
     fn try_from(host_and_port: (&str, u16)) -> Result<Self, Self::Error> {
-        let (host, port) = host_and_port;
-        ConnectionInfo::new(host, port).into_tcp_stream()
+        ConnectionInfo::from(host_and_port).try_into()
     }
 }
 

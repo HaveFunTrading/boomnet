@@ -93,7 +93,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
+        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
             info!("({fin}) {}", String::from_utf8_lossy(data));
         }
         Ok(())
@@ -144,7 +144,7 @@ impl TlsWebsocketEndpoint for TickerEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
+        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
             info!("({fin}) {}", String::from_utf8_lossy(data));
         }
         Ok(())

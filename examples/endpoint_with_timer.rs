@@ -74,7 +74,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, ctx: &mut FeedContext) -> io::Result<()> {
-        while let Some(WebsocketFrame::Text(fin, data)) = ws.receive_next()? {
+        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
             info!("({fin}) {}", String::from_utf8_lossy(data));
         }
         let now_ns = ctx.current_time_ns();

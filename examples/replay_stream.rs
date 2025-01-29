@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     run(move || loop {
-        for frame in ws.batch_iter()? {
+        for frame in ws.read_batch()? {
             if let WebsocketFrame::Text(fin, body) = frame? {
                 println!("({fin}) {}", String::from_utf8_lossy(body));
             }

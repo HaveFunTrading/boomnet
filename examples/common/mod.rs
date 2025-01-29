@@ -65,7 +65,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        for frame in ws.batch_iter()? {
+        for frame in ws.read_batch()? {
             if let WebsocketFrame::Text(fin, data) = frame? {
                 match self.id % 4 {
                     0 => info!("({fin}) {}", Red.paint(String::from_utf8_lossy(data))),
@@ -98,7 +98,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
-        for frame in ws.batch_iter()? {
+        for frame in ws.read_batch()? {
             if let WebsocketFrame::Text(fin, data) = frame? {
                 match self.id % 4 {
                     0 => info!("({fin}) {}", Red.paint(String::from_utf8_lossy(data))),

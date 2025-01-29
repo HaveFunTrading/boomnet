@@ -25,16 +25,17 @@
 //! ```
 //!
 //! Receive messages in a batch for optimal performance.
-//! ```no_run
+//!```no_run
 //! use std::io::{Read, Write};
 //! use boomnet::ws::{Websocket, WebsocketFrame};
 //!
-//! fn consume_batch<S: Read + Write>(ws: &mut Websocket<S>) {
-//!    for frame in ws.batch_iter().unwrap() {
-//!      if let WebsocketFrame::Text(fin, body) = frame.unwrap() {
+//! fn consume_batch<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+//!    for frame in ws.read_batch()? {
+//!      if let WebsocketFrame::Text(fin, body) = frame? {
 //!        println!("({fin}) {}", String::from_utf8_lossy(body));
 //!      }
 //!    }
+//!    Ok(())
 //! }
 //! ```
 //!
@@ -43,10 +44,13 @@
 //! use std::io::{Read, Write};
 //! use boomnet::ws::{Websocket, WebsocketFrame};
 //!
-//! fn consume_individually<S: Read + Write>(ws: &mut Websocket<S>) {
-//!   if let Some(WebsocketFrame::Text(fin, body)) = ws.receive_next().unwrap() {
-//!     println!("({fin}) {}", String::from_utf8_lossy(body));
+//! fn consume_individually<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+//!   if let Some(frame) = ws.receive_next() {
+//!     if let WebsocketFrame::Text(fin, body) = frame? {
+//!       println!("({fin}) {}", String::from_utf8_lossy(body));
+//!     }
 //!   }
+//!   Ok(())
 //! }
 //! ```
 
@@ -131,10 +135,47 @@ impl<S> Websocket<S> {
 }
 
 impl<S: Read + Write> Websocket<S> {
+    /// Allows to decode and iterate over incoming messages in a batch efficient way. It will perform
+    /// single network read operation if there is no more data available for processing. It is possible
+    /// to receive more than one message from a single network read and when no messages are available
+    /// in the current batch, the iterator will yield `None`.
+    ///
+    /// ## Examples
+    ///
+    /// Process incoming frames in a batch using iterator,
+    /// ```no_run
+    /// use std::io::{Read, Write};
+    /// use boomnet::ws::{Websocket, WebsocketFrame};
+    ///
+    /// fn process<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+    ///     for frame in ws.read_batch()? {
+    ///         if let (WebsocketFrame::Text(fin, data)) = frame? {
+    ///             println!("({fin}) {}", String::from_utf8_lossy(data));
+    ///         }
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Read frames one by one without iterator,
+    /// ```no_run
+    /// use std::io::{Read, Write};
+    /// use boomnet::ws::{Websocket, WebsocketFrame};
+    ///
+    /// fn process<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+    ///     let mut batch = ws.read_batch()?;
+    ///     while let Some(frame) = batch.receive_next() {
+    ///         if let (WebsocketFrame::Text(fin, data)) = frame? {
+    ///             println!("({fin}) {}", String::from_utf8_lossy(data));
+    ///         }
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
     #[inline]
-    pub fn batch_iter(&mut self) -> Result<BatchIter<S>, Error> {
+    pub fn read_batch(&mut self) -> Result<Batch<S>, Error> {
         match self.state.read(&mut self.stream).no_block() {
-            Ok(()) => Ok(BatchIter { websocket: self }),
+            Ok(()) => Ok(Batch { websocket: self }),
             Err(err) => {
                 self.closed = true;
                 Err(err)?
@@ -143,8 +184,11 @@ impl<S: Read + Write> Websocket<S> {
     }
 
     #[inline]
-    pub fn receive_next(&mut self) -> Result<Option<WebsocketFrame>, Error> {
-        self.batch_iter()?.next().transpose()
+    pub fn receive_next(&mut self) -> Option<Result<WebsocketFrame, Error>> {
+        match self.read_batch() {
+            Ok(mut batch) => batch.receive_next(),
+            Err(err) => Some(Err(err)),
+        }
     }
 
     #[inline]
@@ -299,19 +343,39 @@ impl State {
     }
 }
 
-/// Allows to decode and iterate over incoming messages in a batch efficient way. It will perform
-/// single network read operation if there is no more data available for processing. It is possible
-/// to receive more than one message from a single network read and when no messages are available
-/// in the current batch, the iterator will yield `None`.
-pub struct BatchIter<'a, S> {
+/// Represents a batch of 0..N websocket frames since the last network read that are ready to be decoded.
+pub struct Batch<'a, S> {
     websocket: &'a mut Websocket<S>,
+}
+
+impl<'a, S: Read + Write> IntoIterator for Batch<'a, S> {
+    type Item = Result<WebsocketFrame, Error>;
+    type IntoIter = BatchIter<'a, S>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BatchIter { batch: self }
+    }
+}
+
+impl<S: Read + Write> Batch<'_, S> {
+    /// Try to decode next frame from the underlying `Batch`. If no more frames are available it
+    /// will return `None`.
+    pub fn receive_next(&mut self) -> Option<Result<WebsocketFrame, Error>> {
+        self.websocket.next().transpose()
+    }
+}
+
+/// Iterator that owns the current `Batch`. When no more frames are available to be decoded in the buffer
+/// it will yield `None`.
+pub struct BatchIter<'a, S> {
+    batch: Batch<'a, S>,
 }
 
 impl<S: Read + Write> Iterator for BatchIter<'_, S> {
     type Item = Result<WebsocketFrame, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.websocket.next().transpose()
+        self.batch.receive_next()
     }
 }
 

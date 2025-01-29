@@ -19,7 +19,7 @@ particularly focusing on TCP stream-oriented clients that utilise various protoc
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
-boomnet = { version = "0.0.33", features = ["full"]}
+boomnet = { version = "0.0.34", features = ["full"]}
 ```
 
 ## Design Principles
@@ -133,7 +133,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
         // iterate over available frames in the current batch
-        for frame in ws.batch_iter()? {
+        for frame in ws.read_batch()? {
             if let WebsocketFrame::Text(fin, data) = frame? {
                 println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data));
             }

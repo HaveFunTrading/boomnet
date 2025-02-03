@@ -49,7 +49,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
             .connection_info
             .clone()
             .into_tcp_stream_with_addr(addr)?
-            .into_tls_websocket(&self.ws_endpoint);
+            .into_tls_websocket(&self.ws_endpoint)?;
         ws.send_text(
             true,
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),

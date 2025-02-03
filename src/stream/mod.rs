@@ -8,6 +8,9 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::{io, vec};
 use url::{ParseError, Url};
 
+// #[cfg(all(feature = "rustls", feature = "openssl"))]
+// compile_error!("Cannot select both 'rustls' and 'openssl' support");
+
 pub mod buffer;
 pub mod file;
 #[cfg(feature = "mio")]
@@ -15,7 +18,7 @@ pub mod mio;
 pub mod record;
 pub mod replay;
 pub mod tcp;
-#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
+#[cfg(any(feature = "rustls", feature = "openssl"))]
 pub mod tls;
 
 #[cfg(target_os = "linux")]

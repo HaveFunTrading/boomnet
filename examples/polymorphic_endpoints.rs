@@ -81,7 +81,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
             .clone()
             .into_tcp_stream_with_addr(addr)?
             .into_mio_stream()
-            .into_tls_websocket("/ws");
+            .into_tls_websocket("/ws")?;
 
         ws.send_text(
             true,
@@ -132,7 +132,7 @@ impl TlsWebsocketEndpoint for TickerEndpoint {
             .clone()
             .into_tcp_stream_with_addr(addr)?
             .into_mio_stream()
-            .into_tls_websocket("/ws");
+            .into_tls_websocket("/ws")?;
 
         ws.send_text(
             true,

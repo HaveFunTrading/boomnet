@@ -53,7 +53,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
-            .into_tls_websocket(&self.ws_endpoint);
+            .into_tls_websocket(&self.ws_endpoint)?;
 
         ws.send_text(
             true,
@@ -86,7 +86,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
-            .into_tls_websocket(&self.ws_endpoint);
+            .into_tls_websocket(&self.ws_endpoint)?;
 
         ws.send_text(
             true,

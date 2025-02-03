@@ -210,12 +210,12 @@ loop {
 ```
 
 ## Features
-BoomNet feature set is modular, allowing for tailored functionality based on project needs. The `full` feature enables
-all available features, while individual components can be enabled as needed.
+The framework feature set is modular, allowing for tailored functionality based on project needs.
 
 * [mio](#mio)
-* [tls-native](#tls-native)
-* [tls-webpki](#tls-webpki)
+* [rustls-native](#rustls-native)
+* [rustls-webpki](#rustls-webpki)
+* [openssl](#openssl)
 * [ws](#ws)
 
 ### `mio`

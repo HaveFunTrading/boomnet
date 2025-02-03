@@ -25,7 +25,7 @@ pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 ///
 /// let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
 ///  .into_tcp_stream().unwrap()
-///  .into_tls_stream()
+///  .into_tls_stream().unwrap()
 ///  .into_default_buffered_stream()
 ///  .into_websocket("/ws");
 /// ```
@@ -40,7 +40,7 @@ pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 ///
 /// let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
 ///  .into_tcp_stream().unwrap()
-///  .into_tls_stream()
+///  .into_tls_stream().unwrap()
 ///  .into_buffered_stream::<512>()
 ///  .into_websocket("/ws");
 /// ```

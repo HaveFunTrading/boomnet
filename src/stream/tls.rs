@@ -390,16 +390,22 @@ pub trait IntoTlsStream {
         self.into_tls_stream_with_config(|_| {})
     }
 
-    /// Convert underlying stream into [TlsStream] and modify tls config.
+    /// Convert underlying stream into [TlsStream] and modify tls config. The type of`TlsConfig` used
+    /// will depend on whether `openssl` or `rustls` has been enabled.
     ///
     /// ## Examples
-    /// ```no_run
-    /// use boomnet::stream::tcp::TcpStream;
-    /// use boomnet::stream::tls::{ClientConfigExt, IntoTlsStream};
     ///
-    /// let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_tls_stream_with_config(|config| {
-    ///     config.with_no_cert_verification();
-    /// });
+    /// Using `rustls` configure the TLS stream to disable server side certificate verification.
+    /// ```no_run
+    /// #[cfg(feature = "rustls")]
+    /// {
+    ///     use boomnet::stream::tcp::TcpStream;
+    ///     use boomnet::stream::tls::{ClientConfigExt, IntoTlsStream};
+    ///
+    ///     let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_tls_stream_with_config(|config| {
+    ///         config.with_no_cert_verification();
+    ///     });
+    /// }
     /// ```
     fn into_tls_stream_with_config<F>(self, builder: F) -> io::Result<TlsStream<Self>>
     where

@@ -12,7 +12,7 @@
 //!
 //! let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
 //! .into_tcp_stream().unwrap()
-//! .into_tls_stream()
+//! .into_tls_stream().unwrap()
 //! .into_default_buffered_stream()
 //! .into_websocket("/ws");
 //! ```

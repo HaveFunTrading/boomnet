@@ -24,6 +24,12 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - "ws,mio,openssl"
+          - "ws,mio,rustls-webpki"
+          - "ws,mio,rustls-native"
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -42,7 +48,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features=ws,mio,openssl
+          args: --features=${{ matrix.features }}
 
   fmt:
     runs-on: ubuntu-latest

@@ -54,6 +54,7 @@
 //! }
 //! ```
 
+use std::fmt::Debug;
 use crate::buffer;
 use crate::service::select::Selectable;
 #[cfg(any(feature = "rustls", feature = "openssl"))]
@@ -407,7 +408,7 @@ pub trait IntoTlsWebsocket {
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 impl<T> IntoTlsWebsocket for T
 where
-    T: Read + Write + ConnectionInfoProvider,
+    T: Read + Write + Debug + ConnectionInfoProvider,
 {
     fn into_tls_websocket(self, endpoint: &str) -> io::Result<Websocket<TlsStream<Self>>>
     where

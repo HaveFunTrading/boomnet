@@ -8,6 +8,7 @@ use mio::event::Source;
 use mio::net::TcpStream;
 use mio::{Interest, Registry, Token};
 
+#[derive(Debug)]
 pub struct MioStream {
     inner: TcpStream,
     connection_info: ConnectionInfo,

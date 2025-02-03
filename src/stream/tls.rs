@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "openssl")]
@@ -319,7 +320,7 @@ mod __openssl {
         }
     }
 
-    impl<S: Read + Write> TlsStream<S> {
+    impl<S: Read + Write + Debug> TlsStream<S> {
         pub fn wrap_with_config<F>(stream: S, server_name: &str, configure: F) -> io::Result<TlsStream<S>>
         where
             F: FnOnce(&mut TlsConfig),
@@ -346,13 +347,13 @@ mod __openssl {
                                 std::thread::sleep(Duration::from_millis(1)); // avoid busy-waiting
                             }
                             Err(e) => {
-                                return Err(io::Error::other(""));
+                                return Err(io::Error::other(e.to_string()));
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    return Err(io::Error::other(""));
+                    return Err(io::Error::other(e.to_string()));
                 }
             };
 
@@ -408,7 +409,7 @@ pub trait IntoTlsStream {
 
 impl<T> IntoTlsStream for T
 where
-    T: Read + Write + ConnectionInfoProvider,
+    T: Read + Write + Debug + ConnectionInfoProvider,
 {
     fn into_tls_stream_with_config<F>(self, builder: F) -> io::Result<TlsStream<Self>>
     where

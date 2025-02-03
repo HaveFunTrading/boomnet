@@ -54,7 +54,6 @@
 //! }
 //! ```
 
-use std::fmt::Debug;
 use crate::buffer;
 use crate::service::select::Selectable;
 #[cfg(any(feature = "rustls", feature = "openssl"))]
@@ -66,6 +65,7 @@ use crate::ws::handshake::Handshaker;
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
+use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind::WouldBlock;
 use std::io::{Read, Write};

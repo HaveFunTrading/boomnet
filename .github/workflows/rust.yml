@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@cargo-hack
-      - run: cargo hack check --rust-version --workspace --all-targets --all-features --ignore-private
+      - run: cargo hack check --rust-version --workspace --all-targets --features=ws,mio,openssl --ignore-private
 
   test:
     runs-on: ubuntu-latest
@@ -42,7 +42,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features
+          args: --features=ws,mio,openssl
 
   fmt:
     runs-on: ubuntu-latest
@@ -70,4 +70,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --no-deps --all-targets --all-features -- -D warnings
+          args: --no-deps --all-targets --features=ws,mio,openssl -- -D warnings

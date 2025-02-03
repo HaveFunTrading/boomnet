@@ -23,7 +23,6 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-
 // fn key_log_callback(_ssl: &SslRef, line: &str) {
 //     let mut file = OpenOptions::new()
 //         .create(true)

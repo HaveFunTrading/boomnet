@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "openssl")]
@@ -11,6 +10,7 @@ use mio::{event::Source, Interest, Registry, Token};
 use openssl::ssl::SslConnectorBuilder;
 #[cfg(feature = "rustls")]
 use rustls::ClientConfig;
+use std::fmt::Debug;
 use std::io;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -155,8 +155,8 @@ mod __rustls {
             builder(&mut config);
 
             let config = Arc::new(config.rustls_config);
-            let server_name = server_name.to_owned().try_into().map_err(|err| io::Error::other(err))?;
-            let tls = ClientConnection::new(config, server_name).map_err(|err| io::Error::other(err))?;
+            let server_name = server_name.to_owned().try_into().map_err(io::Error::other)?;
+            let tls = ClientConnection::new(config, server_name).map_err(io::Error::other)?;
 
             Ok(Self { inner: stream, tls })
         }
@@ -325,7 +325,7 @@ mod __openssl {
         where
             F: FnOnce(&mut TlsConfig),
         {
-            let builder = SslConnector::builder(SslMethod::tls()).map_err(|e| io::Error::other(e))?;
+            let builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
             let mut tls_config = TlsConfig {
                 openssl_config: builder,
             };

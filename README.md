@@ -19,7 +19,7 @@ particularly focusing on TCP stream-oriented clients that utilise various protoc
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
-boomnet = { version = "0.0.34", features = ["full"]}
+boomnet = { version = "0.0.34", features = ["rustls-webpki", "ws"]}
 ```
 
 ## Design Principles
@@ -221,11 +221,14 @@ all available features, while individual components can be enabled as needed.
 ### `mio`
 Adds dependency on `mio` crate and enables `MioSelector` and `MioStream`.
 
-### `tls-native`
+### `rustls-native`
 Adds dependency on `rustls` crate with `rustls-native-certs` and enables `TlsStream` as well as more flexible `TlsReadyStream`.
 
-### `tls-webpki`
+### `rustls-webpki`
 Adds dependency on `rustls` crate with `webpki-roots` and enables `TlsStream` as well as more flexible `TlsReadyStream`.
+
+### `openssl`
+Adds dependency on `openssl` crate and enables `TlsStream` as well as more flexible `TlsReadyStream`.
 
 ### `ws`
 Adds support for `Websocket` protocol.

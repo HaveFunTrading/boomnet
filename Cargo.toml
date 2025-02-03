@@ -16,17 +16,11 @@ features = ["full"]
 
 [features]
 default = []
-
-#full = ["full-tls-webpki"]
-#full-tls-webpki = ["mio", "tls-webpki", "ws"]
-#full-tls-native = ["mio", "tls-native", "ws"]
-
 mio = ["dep:mio"]
-
-tls-native = ["rustls", "rustls-native-certs"]
-tls-webpki = ["rustls", "webpki-roots"]
-ws = ["rand", "base64", "http", "httparse"]
+rustls-native = ["rustls", "rustls-native-certs"]
+rustls-webpki = ["rustls", "webpki-roots"]
 openssl = ["dep:openssl"]
+ws = ["rand", "base64", "http", "httparse"]
 
 [dependencies]
 url = "2.5.0"
@@ -40,7 +34,6 @@ rand = { version = "0.8.5", optional = true }
 base64 = { version = "0.21.5", optional = true }
 httparse = { version = "1.8.0", optional = true }
 http = { version = "1.0.0", optional = true }
-
 openssl = { version = "0.10.70", features = ["vendored"], optional = true }
 
 [dependencies.webpki-roots]

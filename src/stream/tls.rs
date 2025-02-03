@@ -1,20 +1,61 @@
-use std::io;
-use std::io::{Read, Write};
-
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
-use crate::util::NoBlock;
 #[cfg(feature = "openssl")]
-pub use __openssl::{TlsConfig, TlsStream};
+pub use __openssl::TlsStream;
 #[cfg(feature = "rustls")]
-pub use __rustls::{ClientConfigExt, TlsConfig, TlsStream};
+pub use __rustls::{ClientConfigExt, TlsStream};
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
+#[cfg(feature = "openssl")]
+use openssl::ssl::SslConnectorBuilder;
+#[cfg(feature = "rustls")]
+use rustls::ClientConfig;
+use std::io;
+use std::io::{Read, Write};
+use std::ops::{Deref, DerefMut};
+
+pub struct TlsConfig {
+    #[cfg(feature = "rustls")]
+    rustls_config: ClientConfig,
+    #[cfg(feature = "openssl")]
+    openssl_config: SslConnectorBuilder,
+}
+
+impl Deref for TlsConfig {
+    #[cfg(feature = "rustls")]
+    type Target = ClientConfig;
+    #[cfg(feature = "openssl")]
+    type Target = SslConnectorBuilder;
+
+    fn deref(&self) -> &Self::Target {
+        #[cfg(feature = "rustls")]
+        {
+            &self.rustls_config
+        }
+        #[cfg(feature = "openssl")]
+        {
+            &self.openssl_config
+        }
+    }
+}
+
+impl DerefMut for TlsConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        #[cfg(feature = "rustls")]
+        {
+            &mut self.rustls_config
+        }
+        #[cfg(feature = "openssl")]
+        {
+            &mut self.openssl_config
+        }
+    }
+}
 
 #[cfg(feature = "rustls")]
 mod __rustls {
-    use std::fmt::Debug;
     use crate::service::select::Selectable;
+    use crate::stream::tls::TlsConfig;
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     use crate::util::NoBlock;
     #[cfg(feature = "mio")]
@@ -27,12 +68,11 @@ mod __rustls {
         RSA_PSS_SHA512,
     };
     use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, RootCertStore, SignatureScheme};
+    use std::fmt::Debug;
     use std::io;
     use std::io::ErrorKind::Other;
     use std::io::{Read, Write};
     use std::sync::Arc;
-
-    pub type TlsConfig = ClientConfig;
 
     pub struct TlsStream<S> {
         inner: S,
@@ -86,9 +126,9 @@ mod __rustls {
     }
 
     impl<S: Read + Write> TlsStream<S> {
-        pub fn wrap_with_config<F>(stream: S, server_name: &str, builder: F) -> TlsStream<S>
+        pub fn wrap_with_config<F>(stream: S, server_name: &str, builder: F) -> io::Result<TlsStream<S>>
         where
-            F: FnOnce(&mut ClientConfig),
+            F: FnOnce(&mut TlsConfig),
         {
             #[cfg(not(all(feature = "rustls-native-certs", feature = "webpki-roots")))]
             let mut root_store = RootCertStore::empty();
@@ -106,18 +146,21 @@ mod __rustls {
                 }
             }
 
-            let mut config = rustls::ClientConfig::builder()
+            let config = ClientConfig::builder()
                 .with_root_certificates(root_store)
                 .with_no_client_auth();
 
+            let mut config = TlsConfig { rustls_config: config };
             builder(&mut config);
 
-            let tls = ClientConnection::new(Arc::new(config), server_name.to_owned().try_into().unwrap()).unwrap();
+            let config = Arc::new(config.rustls_config);
+            let server_name = server_name.to_owned().try_into().map_err(|err| io::Error::other(err))?;
+            let tls = ClientConnection::new(config, server_name).map_err(|err| io::Error::other(err))?;
 
-            Self { inner: stream, tls }
+            Ok(Self { inner: stream, tls })
         }
 
-        pub fn wrap(stream: S, server_name: &str) -> TlsStream<S> {
+        pub fn wrap(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
             Self::wrap_with_config(stream, server_name, |_| {})
         }
 
@@ -216,16 +259,15 @@ mod __rustls {
 #[cfg(feature = "openssl")]
 mod __openssl {
     use crate::service::select::Selectable;
+    use crate::stream::tls::TlsConfig;
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     #[cfg(feature = "mio")]
     use mio::{event::Source, Interest, Registry, Token};
-    use openssl::ssl::{HandshakeError, SslConnector, SslConnectorBuilder, SslMethod, SslStream};
+    use openssl::ssl::{HandshakeError, SslConnector, SslMethod, SslStream};
     use std::fmt::Debug;
     use std::io;
     use std::io::{Read, Write};
     use std::time::Duration;
-
-    pub type TlsConfig = SslConnectorBuilder;
 
     #[derive(Debug)]
     pub struct TlsStream<S> {
@@ -280,11 +322,14 @@ mod __openssl {
     impl<S: Read + Write> TlsStream<S> {
         pub fn wrap_with_config<F>(stream: S, server_name: &str, configure: F) -> io::Result<TlsStream<S>>
         where
-            F: FnOnce(&mut SslConnectorBuilder),
+            F: FnOnce(&mut TlsConfig),
         {
-            let mut builder = SslConnector::builder(SslMethod::tls()).map_err(|e| io::Error::other(e))?;
-            configure(&mut builder);
-            let connector = builder.build();
+            let builder = SslConnector::builder(SslMethod::tls()).map_err(|e| io::Error::other(e))?;
+            let mut tls_config = TlsConfig {
+                openssl_config: builder,
+            };
+            configure(&mut tls_config);
+            let connector = tls_config.openssl_config.build();
 
             // perform TLS handshake manually in case of non-blocking socket
             let stream = match connector.connect(server_name, stream) {

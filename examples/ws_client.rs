@@ -22,3 +22,14 @@ fn main() -> anyhow::Result<()> {
         idle.idle(0);
     }
 }
+
+
+// fn key_log_callback(_ssl: &SslRef, line: &str) {
+//     let mut file = OpenOptions::new()
+//         .create(true)
+//         .append(true)
+//         .open("sslkeylog.log")
+//         .expect("Failed to open SSL key log file");
+//
+//     writeln!(file, "{}", line).expect("Failed to write to SSL key log file");
+// }

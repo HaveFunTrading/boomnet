@@ -6,7 +6,7 @@ use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
     let mut ws = TcpStream::try_from(("stream.binance.com", 9443))?
-        .into_tls_stream()
+        .into_tls_stream()?
         .into_websocket("/ws?timeUnit=microsecond");
 
     ws.send_text(true, Some(b"{\"method\":\"SUBSCRIBE\",\"params\":[\"btcusdt@trade\"],\"id\":1}"))?;
@@ -22,3 +22,13 @@ fn main() -> anyhow::Result<()> {
         idle.idle(0);
     }
 }
+
+// fn key_log_callback(_ssl: &SslRef, line: &str) {
+//     let mut file = OpenOptions::new()
+//         .create(true)
+//         .append(true)
+//         .open("sslkeylog.log")
+//         .expect("Failed to open SSL key log file");
+//
+//     writeln!(file, "{}", line).expect("Failed to write to SSL key log file");
+// }

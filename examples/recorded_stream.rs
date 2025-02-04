@@ -8,7 +8,7 @@ use std::time::Duration;
 fn main() -> anyhow::Result<()> {
     let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
         .into_tcp_stream()?
-        .into_tls_stream()
+        .into_tls_stream()?
         .into_default_recorded_stream()
         .into_websocket("/ws");
 

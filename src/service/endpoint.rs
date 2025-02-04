@@ -61,7 +61,7 @@ pub trait EndpointWithContext<C>: ConnectionInfoProvider {
     }
 }
 
-#[cfg(all(feature = "ws", any(feature = "tls-webpki", feature = "tls-native")))]
+#[cfg(all(feature = "ws", any(feature = "rustls", feature = "openssl")))]
 pub mod ws {
     use std::io;
     use std::io::{Read, Write};

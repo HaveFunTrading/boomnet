@@ -7,6 +7,7 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 
 /// Wraps `std::net::TcpStream` and provides `ConnectionInfo`.
+#[derive(Debug)]
 pub struct TcpStream {
     inner: std::net::TcpStream,
     connection_info: ConnectionInfo,

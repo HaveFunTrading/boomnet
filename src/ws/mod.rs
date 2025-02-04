@@ -12,7 +12,7 @@
 //!
 //! let mut ws = ConnectionInfo::new("stream.binance.com", 9443)
 //! .into_tcp_stream().unwrap()
-//! .into_tls_stream()
+//! .into_tls_stream().unwrap()
 //! .into_default_buffered_stream()
 //! .into_websocket("/ws");
 //! ```
@@ -56,9 +56,8 @@
 
 use crate::buffer;
 use crate::service::select::Selectable;
-#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
-use crate::stream::tls::IntoTlsStream;
-use crate::stream::tls::{TlsReadyStream, TlsStream};
+#[cfg(any(feature = "rustls", feature = "openssl"))]
+use crate::stream::tls::{IntoTlsStream, TlsReadyStream, TlsStream};
 use crate::stream::{BindAndConnect, ConnectionInfoProvider};
 use crate::util::NoBlock;
 use crate::ws::decoder::Decoder;
@@ -66,6 +65,7 @@ use crate::ws::handshake::Handshaker;
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
+use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind::WouldBlock;
 use std::io::{Read, Write};
@@ -343,7 +343,7 @@ impl State {
     }
 }
 
-/// Represents a batch of 0..N websocket frames since the last network read that are ready to be decoded.
+/// Represents a batch of 0 to N websocket frames since the last network read that are ready to be decoded.
 pub struct Batch<'a, S> {
     websocket: &'a mut Websocket<S>,
 }
@@ -398,34 +398,34 @@ where
     }
 }
 
-#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
+#[cfg(any(feature = "rustls", feature = "openssl"))]
 pub trait IntoTlsWebsocket {
-    fn into_tls_websocket(self, endpoint: &str) -> Websocket<TlsStream<Self>>
+    fn into_tls_websocket(self, endpoint: &str) -> io::Result<Websocket<TlsStream<Self>>>
     where
         Self: Sized;
 }
 
-#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
+#[cfg(any(feature = "rustls", feature = "openssl"))]
 impl<T> IntoTlsWebsocket for T
 where
-    T: Read + Write + ConnectionInfoProvider,
+    T: Read + Write + Debug + ConnectionInfoProvider,
 {
-    fn into_tls_websocket(self, endpoint: &str) -> Websocket<TlsStream<Self>>
+    fn into_tls_websocket(self, endpoint: &str) -> io::Result<Websocket<TlsStream<Self>>>
     where
         Self: Sized,
     {
-        self.into_tls_stream().into_websocket(endpoint)
+        Ok(self.into_tls_stream()?.into_websocket(endpoint))
     }
 }
 
-#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
+#[cfg(any(feature = "rustls", feature = "openssl"))]
 pub trait TryIntoTlsReadyWebsocket {
     fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<std::net::TcpStream>>>
     where
         Self: Sized;
 }
 
-#[cfg(any(feature = "tls-webpki", feature = "tls-native"))]
+#[cfg(any(feature = "rustls", feature = "openssl"))]
 impl<T> TryIntoTlsReadyWebsocket for T
 where
     T: AsRef<str>,
@@ -451,7 +451,7 @@ where
 
         let tls_ready_stream = match url.scheme() {
             "ws" => Ok(TlsReadyStream::Plain(stream)),
-            "wss" => Ok(TlsReadyStream::Tls(TlsStream::wrap(stream, url.host_str().unwrap()))),
+            "wss" => Ok(TlsReadyStream::Tls(TlsStream::wrap(stream, url.host_str().unwrap()).unwrap())),
             scheme => Err(io::Error::other(format!("unrecognised url scheme: {}", scheme))),
         }?;
 

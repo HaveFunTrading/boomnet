@@ -210,22 +210,25 @@ loop {
 ```
 
 ## Features
-BoomNet feature set is modular, allowing for tailored functionality based on project needs. The `full` feature enables
-all available features, while individual components can be enabled as needed.
+The framework feature set is modular, allowing for tailored functionality based on project needs.
 
 * [mio](#mio)
-* [tls-native](#tls-native)
-* [tls-webpki](#tls-webpki)
+* [rustls-native](#rustls-native)
+* [rustls-webpki](#rustls-webpki)
+* [openssl](#openssl)
 * [ws](#ws)
 
 ### `mio`
 Adds dependency on `mio` crate and enables `MioSelector` and `MioStream`.
 
-### `tls-native`
+### `rustls-native`
 Adds dependency on `rustls` crate with `rustls-native-certs` and enables `TlsStream` as well as more flexible `TlsReadyStream`.
 
-### `tls-webpki`
+### `rustls-webpki`
 Adds dependency on `rustls` crate with `webpki-roots` and enables `TlsStream` as well as more flexible `TlsReadyStream`.
+
+### `openssl`
+Adds dependency on `openssl` crate and enables `TlsStream` as well as more flexible `TlsReadyStream`.
 
 ### `ws`
 Adds support for `Websocket` protocol.

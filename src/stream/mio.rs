@@ -40,6 +40,8 @@ impl Selectable for MioStream {
         match self.inner.peer_addr() {
             Ok(_) => {
                 self.connected = true;
+                // bypassing `can_write` as we can get to this state
+                // only if the socket is writable
                 self.inner.write_all(&self.buffer)?;
                 self.buffer.clear();
                 Ok(true)

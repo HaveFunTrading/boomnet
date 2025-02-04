@@ -15,6 +15,7 @@ pub struct MioStream {
     connected: bool,
     can_read: bool,
     can_write: bool,
+    buffer: Vec<u8>,
 }
 
 impl MioStream {
@@ -25,6 +26,7 @@ impl MioStream {
             connected: false,
             can_read: false,
             can_write: false,
+            buffer: Vec::with_capacity(4096),
         }
     }
 }
@@ -38,6 +40,8 @@ impl Selectable for MioStream {
         match self.inner.peer_addr() {
             Ok(_) => {
                 self.connected = true;
+                self.inner.write_all(&self.buffer)?;
+                self.buffer.clear();
                 Ok(true)
             }
             Err(err) if err.kind() == NotConnected => Ok(false),
@@ -85,7 +89,8 @@ impl Read for MioStream {
 impl Write for MioStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if !self.can_write {
-            return Ok(0);
+            self.buffer.extend_from_slice(buf);
+            return Ok(buf.len());
         }
         self.inner.write(buf)
     }

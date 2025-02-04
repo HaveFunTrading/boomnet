@@ -45,6 +45,8 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
         self.tail - self.head
     }
 
+    /// Reads up to `CHUNK_SIZE` into buffer from the provided `stream`. If there is no more space
+    /// available to accommodate the next read, the buffer will grow by a factor of 2.
     pub fn read_from<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
         #[cold]
         fn grow(buf: &mut Vec<u8>) {
@@ -96,6 +98,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     /// This function should only be called after `available` bytes are known.
     /// ```no_run
     /// use boomnet::buffer::ReadBuffer;
+    ///
     /// let mut buffer = ReadBuffer::<4096>::new();
     /// if buffer.available() > 10 {
     ///     unsafe {
@@ -121,6 +124,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     /// This function should only be called after `available` bytes are known.
     /// ```no_run
     /// use boomnet::buffer::ReadBuffer;
+    ///
     /// let mut buffer = ReadBuffer::<4096>::new();
     /// if buffer.available() > 0 {
     ///     unsafe {

@@ -1,13 +1,16 @@
 use ansi_term::Color::{Green, Purple, Red, Yellow};
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
+use boomnet::service::select::Selectable;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tcp::TcpStream;
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
-use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
+use boomnet::ws::{IntoTlsWebsocket, IntoWebsocket, WebsocketFrame};
 use log::info;
 use std::io;
 use std::net::SocketAddr;
+use openssl::ssl::SslVerifyMode;
+use boomnet::stream::tls::IntoTlsStream;
 
 pub struct FeedContext;
 impl Context for FeedContext {}
@@ -53,7 +56,10 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
-            .into_tls_websocket(&self.ws_endpoint)?;
+            .into_tls_stream_with_config(|cfg| {
+                // cfg.set_verify(SslVerifyMode::NONE);
+            })?
+            .into_websocket(&self.ws_endpoint);
 
         ws.send_text(
             true,

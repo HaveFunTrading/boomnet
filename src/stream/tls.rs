@@ -264,59 +264,118 @@ mod __openssl {
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     #[cfg(feature = "mio")]
     use mio::{event::Source, Interest, Registry, Token};
-    use openssl::ssl::{HandshakeError, SslConnector, SslMethod, SslStream};
+    use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslConnector, SslMethod, SslStream};
     use std::fmt::Debug;
     use std::io;
+    use std::io::ErrorKind::WouldBlock;
     use std::io::{Read, Write};
-    use std::time::Duration;
 
     #[derive(Debug)]
     pub struct TlsStream<S> {
-        inner: SslStream<S>,
+        state: State<S>,
+    }
+
+    #[derive(Debug)]
+    enum State<S> {
+        Handshake(Option<(MidHandshakeSslStream<S>, Vec<u8>)>),
+        Stream(SslStream<S>),
+    }
+
+    impl<S> State<S> {
+        fn get_stream(&self) -> &S {
+            match self {
+                State::Handshake(stream_and_buf) => stream_and_buf.as_ref().unwrap().0.get_ref(),
+                State::Stream(stream) => stream.get_ref(),
+            }
+        }
+
+        fn get_stream_mut(&mut self) -> &mut S {
+            match self {
+                State::Handshake(stream_and_buf) => stream_and_buf.as_mut().unwrap().0.get_mut(),
+                State::Stream(stream) => stream.get_mut(),
+            }
+        }
+    }
+
+    impl<S: ConnectionInfoProvider> ConnectionInfoProvider for State<S> {
+        fn connection_info(&self) -> &ConnectionInfo {
+            match self {
+                State::Handshake(stream_and_buf) => stream_and_buf.as_ref().unwrap().0.get_ref().connection_info(),
+                State::Stream(stream) => stream.get_ref().connection_info(),
+            }
+        }
     }
 
     #[cfg(feature = "mio")]
     impl<S: Source> Source for TlsStream<S> {
         fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-            registry.register(self.inner.get_mut(), token, interests)
+            registry.register(self.state.get_stream_mut(), token, interests)
         }
 
         fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-            registry.reregister(self.inner.get_mut(), token, interests)
+            registry.reregister(self.state.get_stream_mut(), token, interests)
         }
 
         fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
-            registry.deregister(self.inner.get_mut())
+            registry.deregister(self.state.get_stream_mut())
         }
     }
 
     impl<S: Selectable> Selectable for TlsStream<S> {
         fn connected(&mut self) -> io::Result<bool> {
-            self.inner.get_mut().connected()
+            self.state.get_stream_mut().connected()
         }
 
         fn make_writable(&mut self) {
-            self.inner.get_mut().make_writable()
+            self.state.get_stream_mut().make_writable()
         }
 
         fn make_readable(&mut self) {
-            self.inner.get_mut().make_readable()
+            self.state.get_stream_mut().make_readable()
         }
     }
 
     impl<S: Read + Write> Read for TlsStream<S> {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.inner.read(buf)
+            match &mut self.state {
+                State::Handshake(stream_and_buf) => {
+                    let (mid_handshake, buffer) = stream_and_buf.take().unwrap();
+                    match mid_handshake.handshake() {
+                        Ok(mut ssl_stream) => {
+                            // drain the pending message buffer
+                            ssl_stream.write_all(&buffer)?;
+                            self.state = State::Stream(ssl_stream);
+                            Err(io::Error::from(WouldBlock))
+                        }
+                        Err(HandshakeError::WouldBlock(mid)) => {
+                            self.state = State::Handshake(Some((mid, buffer)));
+                            Err(io::Error::from(WouldBlock))
+                        }
+                        Err(_) => Err(io::Error::other("handshake failed")),
+                    }
+                }
+                State::Stream(stream) => stream.read(buf),
+            }
         }
     }
 
     impl<S: Read + Write> Write for TlsStream<S> {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.inner.write(buf)
+            match &mut self.state {
+                State::Handshake(stream_and_buf) => {
+                    let (_, buffer) = stream_and_buf.as_mut().unwrap();
+                    buffer.extend_from_slice(buf);
+                    Ok(buf.len())
+                }
+                State::Stream(stream) => stream.write(buf),
+            }
         }
 
         fn flush(&mut self) -> io::Result<()> {
-            self.inner.flush()
+            match &mut self.state {
+                State::Handshake(_) => Ok(()),
+                State::Stream(stream) => stream.flush(),
+            }
         }
     }
 
@@ -325,39 +384,22 @@ mod __openssl {
         where
             F: FnOnce(&mut TlsConfig),
         {
-            let builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
+            let mut builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
             let mut tls_config = TlsConfig {
                 openssl_config: builder,
             };
             configure(&mut tls_config);
+
             let connector = tls_config.openssl_config.build();
-
-            // perform TLS handshake manually in case of non-blocking socket
-            let stream = match connector.connect(server_name, stream) {
-                Ok(stream) => stream,
-                Err(HandshakeError::WouldBlock(mut mid_handshake)) => {
-                    // poll the socket until handshake is complete
-                    loop {
-                        match mid_handshake.handshake() {
-                            Ok(ssl_stream) => {
-                                break ssl_stream;
-                            }
-                            Err(HandshakeError::WouldBlock(mid)) => {
-                                mid_handshake = mid;
-                                std::thread::sleep(Duration::from_millis(1)); // avoid busy-waiting
-                            }
-                            Err(e) => {
-                                return Err(io::Error::other(e.to_string()));
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    return Err(io::Error::other(e.to_string()));
-                }
-            };
-
-            Ok(Self { inner: stream })
+            match connector.connect(server_name, stream) {
+                Ok(stream) => Ok(Self {
+                    state: State::Stream(stream),
+                }),
+                Err(HandshakeError::WouldBlock(mid_handshake)) => Ok(Self {
+                    state: State::Handshake(Some((mid_handshake, Vec::with_capacity(4096)))),
+                }),
+                Err(e) => Err(io::Error::other(e.to_string())),
+            }
         }
 
         pub fn wrap(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
@@ -367,7 +409,7 @@ mod __openssl {
 
     impl<S: ConnectionInfoProvider> ConnectionInfoProvider for TlsStream<S> {
         fn connection_info(&self) -> &ConnectionInfo {
-            self.inner.get_ref().connection_info()
+            self.state.connection_info()
         }
     }
 }

@@ -455,14 +455,17 @@ pub trait IntoTlsStream {
     ///
     /// Using `openssl` configure the TLS stream to disable server side certificate verification.
     /// ```no_run
-    /// use openssl::ssl::SslVerifyMode;
+    /// #[cfg(feature = "openssl")]
     /// {
-    ///     use boomnet::stream::tcp::TcpStream;
-    ///     use boomnet::stream::tls::IntoTlsStream;
+    ///     use openssl::ssl::SslVerifyMode;
+    ///     {
+    ///         use boomnet::stream::tcp::TcpStream;
+    ///         use boomnet::stream::tls::IntoTlsStream;
     ///
-    ///     let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_tls_stream_with_config(|config| {
-    ///         config.as_openssl_mut().set_verify(SslVerifyMode::NONE);
-    ///     });
+    ///         let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_tls_stream_with_config(|config| {
+    ///             config.as_openssl_mut().set_verify(SslVerifyMode::NONE);
+    ///         });
+    ///     }
     /// }
     /// ```
     fn into_tls_stream_with_config<F>(self, builder: F) -> io::Result<TlsStream<Self>>

@@ -2,58 +2,48 @@ use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "openssl")]
 pub use __openssl::TlsStream;
-#[cfg(feature = "rustls")]
+#[cfg(all(feature = "rustls", not(feature = "openssl")))]
 pub use __rustls::{ClientConfigExt, TlsStream};
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
 #[cfg(feature = "openssl")]
 use openssl::ssl::SslConnectorBuilder;
-#[cfg(feature = "rustls")]
+#[cfg(all(feature = "rustls", not(feature = "openssl")))]
 use rustls::ClientConfig;
 use std::fmt::Debug;
 use std::io;
 use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
 
 pub struct TlsConfig {
-    #[cfg(feature = "rustls")]
+    #[cfg(all(feature = "rustls", not(feature = "openssl")))]
     rustls_config: ClientConfig,
     #[cfg(feature = "openssl")]
     openssl_config: SslConnectorBuilder,
 }
 
-impl Deref for TlsConfig {
-    #[cfg(feature = "rustls")]
-    type Target = ClientConfig;
+impl TlsConfig {
+    #[cfg(all(feature = "rustls", not(feature = "openssl")))]
+    pub const fn as_rustls(&self) -> &ClientConfig {
+        &self.rustls_config
+    }
+
+    #[cfg(all(feature = "rustls", not(feature = "openssl")))]
+    pub const fn as_rustls_mut(&mut self) -> &mut ClientConfig {
+        &mut self.rustls_config
+    }
+
     #[cfg(feature = "openssl")]
-    type Target = SslConnectorBuilder;
+    pub const fn as_openssl(&self) -> &SslConnectorBuilder {
+        &self.openssl_config
+    }
 
-    fn deref(&self) -> &Self::Target {
-        #[cfg(feature = "rustls")]
-        {
-            &self.rustls_config
-        }
-        #[cfg(feature = "openssl")]
-        {
-            &self.openssl_config
-        }
+    #[cfg(feature = "openssl")]
+    pub const fn as_openssl_mut(&mut self) -> &mut SslConnectorBuilder {
+        &mut self.openssl_config
     }
 }
 
-impl DerefMut for TlsConfig {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        #[cfg(feature = "rustls")]
-        {
-            &mut self.rustls_config
-        }
-        #[cfg(feature = "openssl")]
-        {
-            &mut self.openssl_config
-        }
-    }
-}
-
-#[cfg(feature = "rustls")]
+#[cfg(all(feature = "rustls", not(feature = "openssl")))]
 mod __rustls {
     use crate::service::select::Selectable;
     use crate::stream::tls::TlsConfig;
@@ -463,15 +453,15 @@ pub trait IntoTlsStream {
     ///
     /// ## Examples
     ///
-    /// Using `rustls` configure the TLS stream to disable server side certificate verification.
+    /// Using `openssl` configure the TLS stream to disable server side certificate verification.
     /// ```no_run
-    /// #[cfg(feature = "rustls")]
+    /// use openssl::ssl::SslVerifyMode;
     /// {
     ///     use boomnet::stream::tcp::TcpStream;
-    ///     use boomnet::stream::tls::{ClientConfigExt, IntoTlsStream};
+    ///     use boomnet::stream::tls::IntoTlsStream;
     ///
     ///     let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_tls_stream_with_config(|config| {
-    ///         config.with_no_cert_verification();
+    ///         config.as_openssl_mut().set_verify(SslVerifyMode::NONE);
     ///     });
     /// }
     /// ```

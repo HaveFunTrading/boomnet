@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.35"
+version = "0.0.36"
 edition = "2021"
 license = "MIT"
 description = "Framework for building low latency clients on top of TCP."
@@ -11,8 +11,8 @@ keywords = ["tungstenite", "async", "client", "websocket", "mio"]
 categories = ["network-programming", "web-programming::websocket"]
 rust-version = "1.83.0"
 
-#[package.metadata.docs.rs]
-#features = ["full"]
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = []

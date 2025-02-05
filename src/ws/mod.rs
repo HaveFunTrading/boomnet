@@ -264,12 +264,12 @@ impl<S: Selectable> Selectable for Websocket<S> {
         self.stream.connected()
     }
 
-    fn make_writable(&mut self) {
-        self.stream.make_writable();
+    fn make_writable(&mut self) -> io::Result<()> {
+        self.stream.make_writable()
     }
 
-    fn make_readable(&mut self) {
-        self.stream.make_readable();
+    fn make_readable(&mut self) -> io::Result<()> {
+        self.stream.make_readable()
     }
 }
 

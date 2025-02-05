@@ -13,9 +13,9 @@ pub type SelectorToken = u32;
 pub trait Selectable {
     fn connected(&mut self) -> io::Result<bool>;
 
-    fn make_writable(&mut self);
+    fn make_writable(&mut self) -> io::Result<()>;
 
-    fn make_readable(&mut self);
+    fn make_readable(&mut self) -> io::Result<()>;
 }
 
 pub trait Selector {

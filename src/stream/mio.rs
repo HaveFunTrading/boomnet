@@ -52,12 +52,14 @@ impl Selectable for MioStream {
         }
     }
 
-    fn make_writable(&mut self) {
+    fn make_writable(&mut self) -> io::Result<()> {
         self.can_write = true;
+        Ok(())
     }
 
-    fn make_readable(&mut self) {
+    fn make_readable(&mut self) -> io::Result<()> {
         self.can_read = true;
+        Ok(())
     }
 }
 

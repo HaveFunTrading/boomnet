@@ -56,11 +56,11 @@ impl<S: Source + Selectable> Selector for MioSelector<S> {
                 .expect("io node not found")
                 .as_stream_mut();
             if ev.is_writable() && stream.connected()? {
-                stream.make_writable();
+                stream.make_writable()?;
                 self.poll.registry().reregister(stream, token, Interest::READABLE)?;
             }
             if ev.is_readable() {
-                stream.make_readable();
+                stream.make_readable()?;
             }
         }
         Ok(())

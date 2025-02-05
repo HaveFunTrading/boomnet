@@ -184,12 +184,12 @@ impl Selectable for TcpStream {
         Ok(true)
     }
 
-    fn make_writable(&mut self) {
-        // no-op
+    fn make_writable(&mut self) -> io::Result<()> {
+        Ok(())
     }
 
-    fn make_readable(&mut self) {
-        // no-op
+    fn make_readable(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

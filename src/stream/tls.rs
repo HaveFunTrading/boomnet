@@ -100,11 +100,11 @@ mod __rustls {
             self.inner.connected()
         }
 
-        fn make_writable(&mut self) {
+        fn make_writable(&mut self) -> io::Result<()> {
             self.inner.make_writable()
         }
 
-        fn make_readable(&mut self) {
+        fn make_readable(&mut self) -> io::Result<()> {
             self.inner.make_readable()
         }
     }
@@ -283,16 +283,6 @@ mod __openssl {
     }
 
     impl<S> State<S> {
-        fn get_stream(&self) -> io::Result<&S> {
-            match self {
-                State::Handshake(stream_and_buf) => match stream_and_buf.as_ref() {
-                    Some((stream, _)) => Ok(stream.get_ref()),
-                    None => Err(io::Error::other("unable to perform TLS handshake")),
-                },
-                State::Stream(stream) => Ok(stream.get_ref()),
-            }
-        }
-
         fn get_stream_mut(&mut self) -> io::Result<&mut S> {
             match self {
                 State::Handshake(stream_and_buf) => match stream_and_buf.as_mut() {
@@ -333,12 +323,12 @@ mod __openssl {
             self.state.get_stream_mut()?.connected()
         }
 
-        fn make_writable(&mut self) {
-            self.state.get_stream_mut().unwrap().make_writable()
+        fn make_writable(&mut self) -> io::Result<()> {
+            self.state.get_stream_mut()?.make_writable()
         }
 
-        fn make_readable(&mut self) {
-            self.state.get_stream_mut().unwrap().make_readable()
+        fn make_readable(&mut self) -> io::Result<()> {
+            self.state.get_stream_mut()?.make_readable()
         }
     }
 
@@ -403,7 +393,7 @@ mod __openssl {
         where
             F: FnOnce(&mut TlsConfig),
         {
-            let mut builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
+            let builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
             let mut tls_config = TlsConfig {
                 openssl_config: builder,
             };
@@ -561,14 +551,14 @@ impl<S: Selectable> Selectable for TlsReadyStream<S> {
         }
     }
 
-    fn make_writable(&mut self) {
+    fn make_writable(&mut self) -> io::Result<()> {
         match self {
             TlsReadyStream::Plain(stream) => stream.make_writable(),
             TlsReadyStream::Tls(stream) => stream.make_writable(),
         }
     }
 
-    fn make_readable(&mut self) {
+    fn make_readable(&mut self) -> io::Result<()> {
         match self {
             TlsReadyStream::Plain(stream) => stream.make_readable(),
             TlsReadyStream::Tls(stream) => stream.make_readable(),

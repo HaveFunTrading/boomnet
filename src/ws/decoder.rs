@@ -38,7 +38,7 @@ impl Decoder {
     #[inline]
     pub fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
         if self.needs_more_data {
-            self.buffer.read_from(stream)?;
+            self.buffer.read_all_from(stream)?;
             self.needs_more_data = false;
         }
         Ok(())

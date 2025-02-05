@@ -18,6 +18,14 @@ pub struct ReadBuffer<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize = D
     tail: usize,
 }
 
+/// Reading mode that controls [ReadBuffer::read_from] data limit.
+enum ReadMode {
+    /// Try to read up to one chunk of data.
+    Chunk,
+    /// Try to read all available data up to the buffer capacity.
+    Available,
+}
+
 impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> Default for ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
     fn default() -> Self {
         Self::new()
@@ -46,8 +54,23 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 
     /// Reads up to `CHUNK_SIZE` into buffer from the provided `stream`. If there is no more space
-    /// available to accommodate the next read, the buffer will grow by a factor of 2.
+    /// available to accommodate the next read of up to chunk size, the buffer will grow by a factor of 2.
+    #[inline]
     pub fn read_from<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+        self.read_from_with_mode(stream, ReadMode::Chunk)
+    }
+
+    /// Reads all available bytes into buffer from the provided `stream`. If there is no more space
+    /// available to accommodate the next read of up to `CHUNK_SIZE`, the buffer will grow by a factor of 2.
+    /// This method is usually preferred to [`ReadBuffer::read_from`] as it takes advantage of all available
+    /// space in the buffer therefore reducing the number of operating system calls and increasing the throughput.
+    #[inline]
+    pub fn read_all_from<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+        self.read_from_with_mode(stream, ReadMode::Available)
+    }
+
+    #[inline]
+    fn read_from_with_mode<S: Read>(&mut self, stream: &mut S, read_mode: ReadMode) -> io::Result<()> {
         #[cold]
         fn grow(buf: &mut Vec<u8>) {
             buf.resize(buf.len() * 2, 0u8);
@@ -73,16 +96,17 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
             self.tail = 0;
         }
 
-        // ensure capacity
-        if self.tail + CHUNK_SIZE > self.inner.len() {
+        // ensure capacity for at least one chunk
+        if self.tail + CHUNK_SIZE > self.inner.capacity() {
             grow(&mut self.inner);
         }
 
-        let read = stream
-            .read(&mut self.inner[self.tail..self.tail + CHUNK_SIZE])
-            .no_block()?;
+        let read = match read_mode {
+            ReadMode::Chunk => stream.read(&mut self.inner[self.tail..self.tail + CHUNK_SIZE]),
+            ReadMode::Available => stream.read(&mut self.inner[self.tail..]),
+        };
 
-        self.tail += read;
+        self.tail += read.no_block()?;
         Ok(())
     }
 
@@ -182,6 +206,20 @@ mod tests {
         assert_eq!(0, buf.available());
 
         assert_eq!(DEFAULT_INITIAL_CAPACITY, buf.inner.len());
+    }
+
+    #[test]
+    fn should_read_all_from_stream() {
+        let mut buf = ReadBuffer::<8>::new();
+        assert_eq!(DEFAULT_INITIAL_CAPACITY, buf.inner.len());
+        assert_eq!(0, buf.head);
+        assert_eq!(0, buf.tail);
+
+        let mut stream = Cursor::new(b"hello world!");
+        buf.read_all_from(&mut stream).expect("unable to read from the stream");
+
+        assert_eq!(12, buf.available());
+        assert_eq!(b"hello world!", buf.view());
     }
 
     #[test]

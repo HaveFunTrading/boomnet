@@ -394,7 +394,7 @@ mod __openssl {
         where
             F: FnOnce(&mut TlsConfig),
         {
-            let mut builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
+            let mut builder = SslConnector::builder(SslMethod::tls_client()).map_err(io::Error::other)?;
 
             if std::env::var("SSLKEYLOGFILE").is_ok() {
                 builder.set_keylog_callback(default_key_log_callback)
@@ -430,7 +430,6 @@ mod __openssl {
 
     fn default_key_log_callback(_ssl: &SslRef, line: &str) {
         let path = std::env::var("SSLKEYLOGFILE").expect("SSLKEYLOGFILE not set");
-
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)

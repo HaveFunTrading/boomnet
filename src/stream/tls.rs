@@ -264,9 +264,10 @@ mod __openssl {
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     #[cfg(feature = "mio")]
     use mio::{event::Source, Interest, Registry, Token};
-    use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslConnector, SslMethod, SslStream};
+    use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslConnector, SslMethod, SslRef, SslStream};
     use openssl::x509::X509VerifyResult;
     use std::fmt::Debug;
+    use std::fs::OpenOptions;
     use std::io;
     use std::io::ErrorKind::WouldBlock;
     use std::io::{Read, Write};
@@ -393,7 +394,12 @@ mod __openssl {
         where
             F: FnOnce(&mut TlsConfig),
         {
-            let builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
+            let mut builder = SslConnector::builder(SslMethod::tls()).map_err(io::Error::other)?;
+
+            if std::env::var("SSLKEYLOGFILE").is_ok() {
+                builder.set_keylog_callback(default_key_log_callback)
+            }
+
             let mut tls_config = TlsConfig {
                 openssl_config: builder,
             };
@@ -420,6 +426,18 @@ mod __openssl {
         fn connection_info(&self) -> &ConnectionInfo {
             self.state.connection_info()
         }
+    }
+
+    fn default_key_log_callback(_ssl: &SslRef, line: &str) {
+        let path = std::env::var("SSLKEYLOGFILE").expect("SSLKEYLOGFILE not set");
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .expect("Failed to open SSL key log file");
+
+        writeln!(file, "{}", line).expect("Failed to write to SSL key log file");
     }
 }
 

@@ -4,3 +4,4 @@ Cargo.lock
 /*.rec
 scratch
 massif.out.*
+*.log

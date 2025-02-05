@@ -30,9 +30,13 @@ fn boomnet_rtt_benchmark(c: &mut Criterion) {
     group.bench_function("boomnet_rtt", |b| {
         b.iter(|| {
             ws.send_text(true, Some(MSG.as_bytes())).unwrap();
+            let mut received = 0;
             loop {
-                if let Some(frame) = ws.receive_next() {
-                    let _ = frame.unwrap();
+                for frame in ws.read_batch().unwrap() {
+                    black_box(frame.unwrap());
+                    received += 1;
+                }
+                if received == 100 {
                     break;
                 }
             }
@@ -59,8 +63,16 @@ fn tungstenite_rtt_benchmark(c: &mut Criterion) {
         b.iter(|| {
             ws.write(Message::Text(Utf8Bytes::from_static(MSG))).unwrap();
             ws.flush().unwrap();
-            if let Message::Text(data) = ws.read().unwrap() {
-                black_box(data);
+
+            let mut received = 0;
+            loop {
+                if let Message::Text(data) = ws.read().unwrap() {
+                    black_box(data);
+                    received += 1;
+                }
+                if received == 100 {
+                    break;
+                }
             }
         })
     });

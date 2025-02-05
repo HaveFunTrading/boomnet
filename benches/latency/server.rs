@@ -10,7 +10,10 @@ pub fn start_on_thread(port: u16) {
             let mut client = accept(stream.unwrap()).unwrap();
             loop {
                 let msg = client.read().unwrap();
-                client.send(msg).unwrap();
+                for _ in 0..100 {
+                    client.write(msg.clone()).unwrap();
+                }
+                client.flush().unwrap();
             }
         }
     });

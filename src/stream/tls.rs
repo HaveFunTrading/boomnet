@@ -7,7 +7,7 @@ pub use __rustls::TlsStream;
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
 #[cfg(feature = "openssl")]
-use openssl::ssl::SslConnectorBuilder;
+use openssl::ssl::{SslConnectorBuilder, SslVerifyMode};
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
 use rustls::ClientConfig;
 use std::fmt::Debug;
@@ -47,10 +47,21 @@ impl TlsConfig {
     }
 }
 
+impl TlsConfigExt for TlsConfig {
+    fn with_no_cert_verification(&mut self) {
+        #[cfg(all(feature = "rustls", not(feature = "openssl")))]
+        self.rustls_config
+            .dangerous()
+            .set_certificate_verifier(std::sync::Arc::new(crate::stream::tls::__rustls::NoCertVerification));
+        #[cfg(feature = "openssl")]
+        self.openssl_config.set_verify(SslVerifyMode::NONE);
+    }
+}
+
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
 mod __rustls {
     use crate::service::select::Selectable;
-    use crate::stream::tls::{TlsConfig, TlsConfigExt};
+    use crate::stream::tls::TlsConfig;
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     use crate::util::NoBlock;
     #[cfg(feature = "mio")]
@@ -67,7 +78,6 @@ mod __rustls {
     use std::io;
     use std::io::ErrorKind::Other;
     use std::io::{Read, Write};
-    use std::sync::Arc;
 
     pub struct TlsStream<S> {
         inner: S,
@@ -148,7 +158,7 @@ mod __rustls {
             let mut config = TlsConfig { rustls_config: config };
             builder(&mut config);
 
-            let config = Arc::new(config.rustls_config);
+            let config = std::sync::Arc::new(config.rustls_config);
             let server_name = server_name.to_owned().try_into().map_err(io::Error::other)?;
             let tls = ClientConnection::new(config, server_name).map_err(io::Error::other)?;
 
@@ -188,14 +198,8 @@ mod __rustls {
         }
     }
 
-    impl TlsConfigExt for ClientConfig {
-        fn with_no_cert_verification(&mut self) {
-            self.dangerous().set_certificate_verifier(Arc::new(NoCertVerification))
-        }
-    }
-
     #[derive(Debug)]
-    struct NoCertVerification;
+    pub(crate) struct NoCertVerification;
 
     impl ServerCertVerifier for NoCertVerification {
         fn verify_server_cert(
@@ -250,14 +254,11 @@ mod __rustls {
 #[cfg(feature = "openssl")]
 mod __openssl {
     use crate::service::select::Selectable;
-    use crate::stream::tls::{TlsConfig, TlsConfigExt};
+    use crate::stream::tls::TlsConfig;
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     #[cfg(feature = "mio")]
     use mio::{event::Source, Interest, Registry, Token};
-    use openssl::ssl::{
-        HandshakeError, MidHandshakeSslStream, SslConnector, SslConnectorBuilder, SslMethod, SslRef, SslStream,
-        SslVerifyMode,
-    };
+    use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslConnector, SslMethod, SslRef, SslStream};
     use openssl::x509::X509VerifyResult;
     use std::fmt::Debug;
     use std::fs::OpenOptions;
@@ -418,12 +419,6 @@ mod __openssl {
     impl<S: ConnectionInfoProvider> ConnectionInfoProvider for TlsStream<S> {
         fn connection_info(&self) -> &ConnectionInfo {
             self.state.connection_info()
-        }
-    }
-
-    impl TlsConfigExt for SslConnectorBuilder {
-        fn with_no_cert_verification(&mut self) {
-            self.set_verify(SslVerifyMode::NONE);
         }
     }
 

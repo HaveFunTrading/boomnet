@@ -3,7 +3,7 @@ use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "openssl")]
 pub use __openssl::TlsStream;
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
-pub use __rustls::{ClientConfigExt, TlsStream};
+pub use __rustls::TlsStream;
 #[cfg(feature = "mio")]
 use mio::{event::Source, Interest, Registry, Token};
 #[cfg(feature = "openssl")]
@@ -19,6 +19,10 @@ pub struct TlsConfig {
     rustls_config: ClientConfig,
     #[cfg(feature = "openssl")]
     openssl_config: SslConnectorBuilder,
+}
+
+pub trait TlsConfigExt {
+    fn with_no_cert_verification(&mut self);
 }
 
 impl TlsConfig {
@@ -46,7 +50,7 @@ impl TlsConfig {
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
 mod __rustls {
     use crate::service::select::Selectable;
-    use crate::stream::tls::TlsConfig;
+    use crate::stream::tls::{TlsConfig, TlsConfigExt};
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     use crate::util::NoBlock;
     #[cfg(feature = "mio")]
@@ -184,11 +188,7 @@ mod __rustls {
         }
     }
 
-    pub trait ClientConfigExt {
-        fn with_no_cert_verification(&mut self);
-    }
-
-    impl ClientConfigExt for ClientConfig {
+    impl TlsConfigExt for ClientConfig {
         fn with_no_cert_verification(&mut self) {
             self.dangerous().set_certificate_verifier(Arc::new(NoCertVerification))
         }
@@ -250,11 +250,14 @@ mod __rustls {
 #[cfg(feature = "openssl")]
 mod __openssl {
     use crate::service::select::Selectable;
-    use crate::stream::tls::TlsConfig;
+    use crate::stream::tls::{TlsConfig, TlsConfigExt};
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     #[cfg(feature = "mio")]
     use mio::{event::Source, Interest, Registry, Token};
-    use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslConnector, SslMethod, SslRef, SslStream};
+    use openssl::ssl::{
+        HandshakeError, MidHandshakeSslStream, SslConnector, SslConnectorBuilder, SslMethod, SslRef, SslStream,
+        SslVerifyMode,
+    };
     use openssl::x509::X509VerifyResult;
     use std::fmt::Debug;
     use std::fs::OpenOptions;
@@ -415,6 +418,12 @@ mod __openssl {
     impl<S: ConnectionInfoProvider> ConnectionInfoProvider for TlsStream<S> {
         fn connection_info(&self) -> &ConnectionInfo {
             self.state.connection_info()
+        }
+    }
+
+    impl TlsConfigExt for SslConnectorBuilder {
+        fn with_no_cert_verification(&mut self) {
+            self.set_verify(SslVerifyMode::NONE);
         }
     }
 

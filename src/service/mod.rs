@@ -142,7 +142,7 @@ where
         self.io_nodes.retain(|_token, io_node| {
             let (stream, endpoint) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream) {
-                error!("error when polling endpoint: {}", err);
+                error!("error when polling endpoint [{}]: {}", endpoint.connection_info().host(), err);
                 self.selector.unregister(io_node).unwrap();
                 let mut endpoint = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate() {
@@ -219,7 +219,7 @@ where
         self.io_nodes.retain(|_token, io_node| {
             let (stream, endpoint) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream, context) {
-                error!("error when polling endpoint: {}", err);
+                error!("error when polling endpoint [{}]: {}", endpoint.connection_info().host(), err);
                 self.selector.unregister(io_node).unwrap();
                 let mut endpoint = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(context) {

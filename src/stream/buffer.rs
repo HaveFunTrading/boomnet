@@ -1,6 +1,9 @@
 //! Stream that is buffering data written to it.
 
+use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use mio::event::Source;
+use mio::{Interest, Registry, Token};
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::mem::MaybeUninit;
@@ -112,5 +115,34 @@ where
                 cursor: 0,
             }
         }
+    }
+}
+
+impl<S: Selectable> Selectable for BufferedStream<S> {
+    fn connected(&mut self) -> io::Result<bool> {
+        self.inner.connected()
+    }
+
+    fn make_writable(&mut self) -> io::Result<()> {
+        self.inner.make_writable()
+    }
+
+    fn make_readable(&mut self) -> io::Result<()> {
+        self.inner.make_readable()
+    }
+}
+
+#[cfg(feature = "mio")]
+impl<S: Source> Source for BufferedStream<S> {
+    fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        registry.register(&mut self.inner, token, interests)
+    }
+
+    fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        registry.reregister(&mut self.inner, token, interests)
+    }
+
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+        registry.deregister(&mut self.inner)
     }
 }

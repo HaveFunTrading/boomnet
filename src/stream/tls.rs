@@ -16,7 +16,6 @@ use std::fmt::Debug;
 use std::io;
 use std::io::{Read, Write};
 
-
 /// Used to configure TLS backend.
 pub struct TlsConfig {
     #[cfg(all(feature = "rustls", not(feature = "openssl")))]
@@ -27,13 +26,11 @@ pub struct TlsConfig {
 
 /// Extension methods for `TlsConfig`.
 pub trait TlsConfigExt {
-
     /// Disable certificate verification.
     fn with_no_cert_verification(&mut self);
 }
 
 impl TlsConfig {
-
     /// Get reference to the `rustls` configuration object.
     #[cfg(all(feature = "rustls", not(feature = "openssl")))]
     pub const fn as_rustls(&self) -> &ClientConfig {

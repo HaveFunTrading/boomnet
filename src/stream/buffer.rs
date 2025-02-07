@@ -16,7 +16,7 @@ pub const DEFAULT_BUFFER_SIZE: usize = 1024;
 /// is no more space in the buffer to accommodate the current write it
 /// will return [ErrorKind::WriteZero].
 ///
-/// # Examples
+/// ## Examples
 ///
 /// Wrap with default BufferedStream`.
 ///

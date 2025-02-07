@@ -8,9 +8,6 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::{io, vec};
 use url::{ParseError, Url};
 
-// #[cfg(all(feature = "rustls", feature = "openssl"))]
-// compile_error!("Cannot select both 'rustls' and 'openssl' support");
-
 pub mod buffer;
 pub mod file;
 #[cfg(feature = "mio")]

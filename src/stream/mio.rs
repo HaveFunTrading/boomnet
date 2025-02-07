@@ -1,3 +1,5 @@
+//! Stream that can be used together with `MioSelector`.
+
 use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock};
 use std::io::{Read, Write};
 use std::{io, net};

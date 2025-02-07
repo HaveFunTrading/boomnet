@@ -1,3 +1,5 @@
+//! Stream that uses file replay.
+
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::fs::File;
 use std::io;

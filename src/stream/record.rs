@@ -1,3 +1,5 @@
+//! Stream that will also record incoming and outgoing data to a file.
+//!
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::fs::File;
 use std::io;

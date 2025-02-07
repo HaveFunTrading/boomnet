@@ -1,3 +1,5 @@
+//! Provides TLS stream implementation for different backends.
+
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "openssl")]
@@ -14,6 +16,8 @@ use std::fmt::Debug;
 use std::io;
 use std::io::{Read, Write};
 
+
+/// Used to configure TLS backend.
 pub struct TlsConfig {
     #[cfg(all(feature = "rustls", not(feature = "openssl")))]
     rustls_config: ClientConfig,
@@ -21,26 +25,34 @@ pub struct TlsConfig {
     openssl_config: SslConnectorBuilder,
 }
 
+/// Extension methods for `TlsConfig`.
 pub trait TlsConfigExt {
+
+    /// Disable certificate verification.
     fn with_no_cert_verification(&mut self);
 }
 
 impl TlsConfig {
+
+    /// Get reference to the `rustls` configuration object.
     #[cfg(all(feature = "rustls", not(feature = "openssl")))]
     pub const fn as_rustls(&self) -> &ClientConfig {
         &self.rustls_config
     }
 
+    /// Get mutable reference to the `rustls` configuration object.
     #[cfg(all(feature = "rustls", not(feature = "openssl")))]
     pub const fn as_rustls_mut(&mut self) -> &mut ClientConfig {
         &mut self.rustls_config
     }
 
+    /// Get reference to the `openssl` configuration object.
     #[cfg(feature = "openssl")]
     pub const fn as_openssl(&self) -> &SslConnectorBuilder {
         &self.openssl_config
     }
 
+    /// Get mutable reference to the `openssl` configuration object.
     #[cfg(feature = "openssl")]
     pub const fn as_openssl_mut(&mut self) -> &mut SslConnectorBuilder {
         &mut self.openssl_config

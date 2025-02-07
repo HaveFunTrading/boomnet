@@ -19,7 +19,7 @@ particularly focusing on TCP stream-oriented clients that utilise various protoc
 Simply declare dependency on `boomnet` in your `Cargo.toml` and select desired [features](#features).
 ```toml
 [dependencies]
-boomnet = { version = "0.0.37", features = ["rustls-webpki", "ws"]}
+boomnet = { version = "0.0.38", features = ["rustls-webpki", "ws"]}
 ```
 
 ## Design Principles

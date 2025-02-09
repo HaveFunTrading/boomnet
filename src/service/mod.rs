@@ -116,14 +116,14 @@ where
         self.selector.poll(&mut self.io_nodes)?;
 
         // check for auto disconnect if enabled
-        if self.auto_disconnect.is_some() {
+        if let Some(auto_disconnect) = self.auto_disconnect {
             let current_time_ns = current_time_nanos();
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().can_auto_disconnect() {
-                        warn!("endpoint auto disconnected after {:?}", self.auto_disconnect.unwrap());
+                        warn!("endpoint auto disconnected after {:?}", auto_disconnect);
                         self.selector.unregister(io_node).unwrap();
                         let mut endpoint = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
@@ -134,7 +134,7 @@ where
                         false
                     } else {
                         // extend the endpoint TTL
-                        io_node.disconnect_time_ns += self.auto_disconnect.unwrap().as_nanos() as u64;
+                        io_node.disconnect_time_ns += auto_disconnect.as_nanos() as u64;
                         true
                     };
                 }
@@ -197,14 +197,14 @@ where
         self.selector.poll(&mut self.io_nodes)?;
 
         // check for auto disconnect if enabled
-        if self.auto_disconnect.is_some() {
+        if let Some(auto_disconnect) = self.auto_disconnect {
             let current_time_ns = current_time_nanos();
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().can_auto_disconnect(context) {
-                        warn!("endpoint auto disconnected after {:?}", self.auto_disconnect.unwrap());
+                        warn!("endpoint auto disconnected after {:?}", auto_disconnect);
                         self.selector.unregister(io_node).unwrap();
                         let mut endpoint = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {
@@ -215,7 +215,7 @@ where
                         false
                     } else {
                         // extend the endpoint TTL
-                        io_node.disconnect_time_ns += self.auto_disconnect.unwrap().as_nanos() as u64;
+                        io_node.disconnect_time_ns += auto_disconnect.as_nanos() as u64;
                         true
                     };
                 }

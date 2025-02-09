@@ -44,7 +44,7 @@ impl ConnectionInfoProvider for TradeEndpoint {
 impl TlsWebsocketEndpoint for TradeEndpoint {
     type Stream = tcp::TcpStream;
 
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -55,7 +55,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
         )?;
 
-        Ok(ws)
+        Ok(Some(ws))
     }
 
     #[inline]

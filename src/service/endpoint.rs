@@ -10,8 +10,10 @@ pub trait Endpoint: ConnectionInfoProvider {
     /// Defines protocol and stream this endpoint operates on.
     type Target;
 
-    /// Used by the `IOService` to create connection upon disconnect.
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Self::Target>;
+    /// Used by the `IOService` to create connection upon disconnect by passing resolved `addr`.
+    /// If the endpoint does not want to connect at this stage it should return `Ok(None)` and
+    /// await the next connection attempt with (possibly) different `addr`.
+    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>>;
 
     /// Called by the `IOService` on each duty cycle.
     fn poll(&mut self, target: &mut Self::Target) -> io::Result<()>;
@@ -40,9 +42,10 @@ pub trait EndpointWithContext<C>: ConnectionInfoProvider {
     /// Defines protocol and stream this endpoint operates on.
     type Target;
 
-    /// Used by the `IOService` to create connection upon disconnect passing user provided
-    /// `Context`
-    fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target>;
+    /// Used by the `IOService` to create connection upon disconnect passing resolved `addr` and
+    /// user provided `Context`. If the endpoint does not want to connect at this stage it should
+    /// return `Ok(None)` and await the next connection attempt with (possibly) different `addr`.
+    fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Option<Self::Target>>;
 
     /// Called by the `IOService` on each duty cycle passing user provided `Context`.
     fn poll(&mut self, target: &mut Self::Target, context: &mut C) -> io::Result<()>;
@@ -77,7 +80,7 @@ pub mod ws {
     pub trait TlsWebsocketEndpoint: ConnectionInfoProvider {
         type Stream: Read + Write;
 
-        fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Websocket<TlsStream<Self::Stream>>>;
+        fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<Websocket<TlsStream<Self::Stream>>>>;
 
         fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()>;
 
@@ -97,7 +100,7 @@ pub mod ws {
         type Target = Websocket<TlsStream<T::Stream>>;
 
         #[inline]
-        fn create_target(&mut self, addr: SocketAddr) -> io::Result<Self::Target> {
+        fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
             self.create_websocket(addr)
         }
 
@@ -120,8 +123,11 @@ pub mod ws {
     pub trait TlsWebsocketEndpointWithContext<C>: ConnectionInfoProvider {
         type Stream: Read + Write;
 
-        fn create_websocket(&mut self, addr: SocketAddr, ctx: &mut C)
-            -> io::Result<Websocket<TlsStream<Self::Stream>>>;
+        fn create_websocket(
+            &mut self,
+            addr: SocketAddr,
+            ctx: &mut C,
+        ) -> io::Result<Option<Websocket<TlsStream<Self::Stream>>>>;
 
         fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut C) -> io::Result<()>;
 
@@ -141,7 +147,7 @@ pub mod ws {
         type Target = Websocket<TlsStream<T::Stream>>;
 
         #[inline]
-        fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Self::Target> {
+        fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Option<Self::Target>> {
             self.create_websocket(addr, context)
         }
 

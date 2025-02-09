@@ -34,7 +34,7 @@ impl ConnectionInfoProvider for MarketDataEndpoint {
 impl TlsWebsocketEndpoint for MarketDataEndpoint {
     type Stream = MioStream;
 
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Websocket<TlsStream<Self::Stream>>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<Websocket<TlsStream<Self::Stream>>>> {
         match self {
             MarketDataEndpoint::Ticker(ticker) => ticker.create_websocket(addr),
             MarketDataEndpoint::Trade(trade) => trade.create_websocket(addr),
@@ -75,7 +75,7 @@ impl ConnectionInfoProvider for TradeEndpoint {
 impl TlsWebsocketEndpoint for TradeEndpoint {
     type Stream = MioStream;
 
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -88,7 +88,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
         )?;
 
-        Ok(ws)
+        Ok(Some(ws))
     }
 
     #[inline]
@@ -126,7 +126,7 @@ impl ConnectionInfoProvider for TickerEndpoint {
 impl TlsWebsocketEndpoint for TickerEndpoint {
     type Stream = MioStream;
 
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -139,7 +139,7 @@ impl TlsWebsocketEndpoint for TickerEndpoint {
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@ticker"],"id":1}}"#, self.instrument).as_bytes()),
         )?;
 
-        Ok(ws)
+        Ok(Some(ws))
     }
 
     #[inline]

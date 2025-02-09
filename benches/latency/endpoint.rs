@@ -36,14 +36,14 @@ impl ConnectionInfoProvider for TestEndpoint {
 impl EndpointWithContext<TestContext> for TestEndpoint {
     type Target = Websocket<BufferedStream<TcpStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut TestContext) -> std::io::Result<Self::Target> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut TestContext) -> std::io::Result<Option<Self::Target>> {
         let ws = self
             .connection_info
             .clone()
             .into_tcp_stream_with_addr(addr)?
             .into_default_buffered_stream()
             .into_websocket("/");
-        Ok(ws)
+        Ok(Some(ws))
     }
 
     fn poll(&mut self, ws: &mut Self::Target, ctx: &mut TestContext) -> std::io::Result<()> {

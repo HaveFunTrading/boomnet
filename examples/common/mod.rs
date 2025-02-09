@@ -51,7 +51,7 @@ impl ConnectionInfoProvider for TradeEndpoint {
 impl TlsWebsocketEndpoint for TradeEndpoint {
     type Stream = MioStream;
 
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_tls_stream()?
@@ -62,7 +62,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
         )?;
 
-        Ok(ws)
+        Ok(Some(ws))
     }
 
     #[inline]
@@ -85,7 +85,11 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     type Stream = MioStream;
 
-    fn create_websocket(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(
+        &mut self,
+        addr: SocketAddr,
+        _ctx: &mut FeedContext,
+    ) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_tls_websocket(&self.ws_endpoint)?;
@@ -95,7 +99,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
         )?;
 
-        Ok(ws)
+        Ok(Some(ws))
     }
 
     #[inline]

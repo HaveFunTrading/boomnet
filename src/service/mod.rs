@@ -99,10 +99,14 @@ where
             if current_time_ns > self.next_endpoint_create_time_ns {
                 if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
-                    let stream = endpoint.create_target(addr)?;
-                    let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
-                    let token = self.selector.register(&mut io_node)?;
-                    self.io_nodes.insert(token, io_node);
+                    match endpoint.create_target(addr)? {
+                        Some(stream) => {
+                            let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
+                            let token = self.selector.register(&mut io_node)?;
+                            self.io_nodes.insert(token, io_node);
+                        }
+                        None => self.pending_endpoints.push_back(endpoint),
+                    }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
             }
@@ -176,10 +180,14 @@ where
             if current_time_ns > self.next_endpoint_create_time_ns {
                 if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
-                    let stream = endpoint.create_target(addr, context)?;
-                    let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
-                    let token = self.selector.register(&mut io_node)?;
-                    self.io_nodes.insert(token, io_node);
+                    match endpoint.create_target(addr, context)? {
+                        Some(stream) => {
+                            let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
+                            let token = self.selector.register(&mut io_node)?;
+                            self.io_nodes.insert(token, io_node);
+                        }
+                        None => self.pending_endpoints.push_back(endpoint),
+                    }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
             }

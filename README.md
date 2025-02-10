@@ -115,7 +115,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     type Stream = MioStream;
 
     // called by the IO service whenever a connection has to be established for this endpoint
-    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
 
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
@@ -127,7 +127,7 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
             Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
         )?;
 
-        Ok(ws)
+        Ok(Some(ws))
     }
 
     #[inline]
@@ -184,13 +184,16 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
         self.url
     }
 
-    fn create_websocket(&mut self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<TlsWebsocket<Self::Stream>> {
+    fn create_websocket(&mut self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         // we now have access to context
+        // ...
     }
 
     #[inline]
     fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, ctx: &mut FeedContext) -> io::Result<()> {
         // we now have access to context
+        // ...
+        Ok(())
     }
 }
 ```
@@ -198,7 +201,7 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 We will also need to create `IOService` that is `Context` aware.
 
 ```rust
-let mut context = FeedContext::new(static_data);
+let mut context = FeedContext::new();
 let mut io_service = MioSelector::new()?.into_io_service_with_context(&mut context);
 ```
 

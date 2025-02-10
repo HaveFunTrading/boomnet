@@ -180,10 +180,6 @@ When implementing our `TradeEndpoint` we can use `TlsWebsocketEndpointWithContex
 impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
     type Stream = MioStream;
 
-    fn url(&self) -> &str {
-        self.url
-    }
-
     fn create_websocket(&mut self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         // we now have access to context
         // ...

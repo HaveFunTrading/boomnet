@@ -32,7 +32,7 @@ The first layer defines `stream` as abstraction over TCP connection, adhering to
 
 * Must implement `Read` and `Write` traits for I/O operations.
 * Operates in a non-blocking manner.
-* Integrates with TLS using `rustls`.
+* Integrates with TLS using `rustls` or `openssl`.
 * Supports recording and replay of network byte streams.
 * Allows binding to specific network interface.
 * Facilitates implementation of TCP oriented client protocols such as WebSocket, HTTP, and FIX.

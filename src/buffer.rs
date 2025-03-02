@@ -13,7 +13,6 @@ const DEFAULT_INITIAL_CAPACITY: usize = 32768;
 #[derive(Debug)]
 pub struct ReadBuffer<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize = DEFAULT_INITIAL_CAPACITY> {
     inner: Vec<u8>,
-    ptr: *const u8,
     head: usize,
     tail: usize,
 }
@@ -38,11 +37,8 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
             CHUNK_SIZE <= INITIAL_CAPACITY,
             "CHUNK_SIZE ({CHUNK_SIZE}) must be less or equal than {INITIAL_CAPACITY}"
         );
-        let inner = vec![0u8; INITIAL_CAPACITY];
-        let ptr = inner.as_ptr();
         Self {
-            inner,
-            ptr,
+            inner: vec![0u8; INITIAL_CAPACITY],
             head: 0,
             tail: 0,
         }
@@ -111,7 +107,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 
     #[inline]
-    pub const fn consume_next(&mut self, len: usize) -> Option<&'static [u8]> {
+    pub fn consume_next(&mut self, len: usize) -> Option<&'static [u8]> {
         match self.available() >= len {
             true => Some(unsafe { self.consume_next_unchecked(len) }),
             false => None,
@@ -130,14 +126,14 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     ///     }
     /// }
     #[inline]
-    pub const unsafe fn consume_next_unchecked(&mut self, len: usize) -> &'static [u8] {
-        let consumed_view = &*ptr::slice_from_raw_parts(self.ptr.add(self.head), len);
+    pub unsafe fn consume_next_unchecked(&mut self, len: usize) -> &'static [u8] {
+        let consumed_view = &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len);
         self.head += len;
         consumed_view
     }
 
     #[inline]
-    pub const fn consume_next_byte(&mut self) -> Option<u8> {
+    pub fn consume_next_byte(&mut self) -> Option<u8> {
         match self.available() >= 1 {
             true => Some(unsafe { self.consume_next_byte_unchecked() }),
             false => None,
@@ -156,8 +152,8 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     ///     }
     /// }
     #[inline]
-    pub const unsafe fn consume_next_byte_unchecked(&mut self) -> u8 {
-        let byte = *self.ptr.add(self.head);
+    pub unsafe fn consume_next_byte_unchecked(&mut self) -> u8 {
+        let byte = *self.inner.as_ptr().add(self.head);
         self.head += 1;
         byte
     }

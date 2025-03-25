@@ -38,7 +38,7 @@ jobs:
           - "ws,mio,rustls-native"
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions/cache@v3
         id: cache-dependencies
         with:
           path: |

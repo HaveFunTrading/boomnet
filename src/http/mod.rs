@@ -28,6 +28,7 @@ impl<C: ConnectionPool> HttpClient<C> {
         &mut self,
         method: Method,
         path: impl AsRef<str>,
+        body: Option<&[u8]>,
         builder: F,
     ) -> io::Result<HttpRequest<C>>
     where
@@ -43,6 +44,7 @@ impl<C: ConnectionPool> HttpClient<C> {
         let request = HttpRequest::new(
             method,
             path,
+            body,
             &headers[..count],
             stream,
             self.connection_pool.clone(),
@@ -51,8 +53,13 @@ impl<C: ConnectionPool> HttpClient<C> {
         Ok(request)
     }
 
-    pub fn new_request(&mut self, method: Method, path: impl AsRef<str>) -> io::Result<HttpRequest<C>> {
-        self.new_request_with_headers(method, path, |_| 0)
+    pub fn new_request(
+        &mut self,
+        method: Method,
+        path: impl AsRef<str>,
+        body: Option<&[u8]>,
+    ) -> io::Result<HttpRequest<C>> {
+        self.new_request_with_headers(method, path, body, |_| 0)
     }
 }
 
@@ -151,6 +158,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
     fn new(
         method: Method,
         path: impl AsRef<str>,
+        body: Option<&[u8]>,
         headers: &[(&str, &str)],
         mut stream: C::Stream,
         connection_pool: Rc<RefCell<C>>,
@@ -169,9 +177,24 @@ impl<C: ConnectionPool> HttpRequest<C> {
                 stream.write_all(header.1.as_bytes())?;
                 stream.write_all(b"\r\n")?;
             }
+            if let Some(body) = body {
+                stream.write_all(b"Content-Length: ")?;
+                let mut buf = itoa::Buffer::new();
+                stream.write_all(buf.format(body.len()).as_bytes())?;
+                stream.write_all(b"\r\n")?;
+            }
             stream.write_all(b"\r\n")?;
+        } else if let Some(body) = body {
+            stream.write_all(b"\r\n")?;
+            stream.write_all(b"Content-Length: ")?;
+            let mut buf = itoa::Buffer::new();
+            stream.write_all(buf.format(body.as_ref().len()).as_bytes())?;
+            stream.write_all(b"\r\n\r\n")?;
         } else {
             stream.write_all(b"\r\n\r\n")?;
+        }
+        if let Some(body) = body {
+            stream.write_all(body)?;
         }
         stream.flush()?;
         Ok(Self {

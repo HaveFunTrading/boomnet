@@ -210,7 +210,6 @@ impl ConnectionPool for SingleTlsConnectionPool {
 pub struct HttpRequest<C: ConnectionPool> {
     stream: Option<C::Stream>,
     connection_pool: Rc<RefCell<C>>,
-    read: usize,
     state: State,
     header_finder: Rc<Finder>,
 }
@@ -275,7 +274,6 @@ impl<C: ConnectionPool> HttpRequest<C> {
         Ok(Self {
             stream: Some(stream),
             connection_pool,
-            read: 0,
             state: State::ReadingHeaders,
             header_finder,
         })
@@ -334,7 +332,6 @@ impl<C: ConnectionPool> HttpRequest<C> {
                             if read > 0 {
                                 buffer.extend_from_slice(&chunk[..read]);
                             }
-                            self.read += read;
                         }
                         Err(err) => {
                             let _ = self.stream.take();
@@ -346,8 +343,8 @@ impl<C: ConnectionPool> HttpRequest<C> {
             }
             match self.state {
                 State::ReadingHeaders => {
-                    if self.read >= 4 {
-                        if let Some(headers_end) = self.header_finder.find(&buffer[..self.read], b"\r\n\r\n") {
+                    if buffer.len() >= 4 {
+                        if let Some(headers_end) = self.header_finder.find(buffer, b"\r\n\r\n") {
                             let header_len = headers_end + 4;
                             let header_slice = &buffer[..header_len];
                             // now parse headers
@@ -388,7 +385,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
                     status_code,
                 } => {
                     let total_len = header_len + content_len;
-                    if self.read >= total_len {
+                    if buffer.len() >= total_len {
                         self.state = State::Done {
                             header_len,
                             status_code,
@@ -399,7 +396,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
                     header_len,
                     status_code,
                 } => {
-                    let (headers, body) = buffer[..self.read].split_at(header_len);
+                    let (headers, body) = buffer.split_at(header_len);
                     let headers =
                         std::str::from_utf8(headers).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
                     let body = std::str::from_utf8(body).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;

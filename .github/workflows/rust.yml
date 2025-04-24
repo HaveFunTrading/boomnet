@@ -23,6 +23,7 @@ jobs:
           - "ws,mio,openssl"
           - "ws,mio,rustls-webpki"
           - "ws,mio,rustls-native"
+          - "http,openssl"
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@cargo-hack
@@ -36,6 +37,7 @@ jobs:
           - "ws,mio,openssl"
           - "ws,mio,rustls-webpki"
           - "ws,mio,rustls-native"
+          - "http,openssl"
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v3
@@ -78,6 +80,7 @@ jobs:
           - "ws,mio,openssl"
           - "ws,mio,rustls-webpki"
           - "ws,mio,rustls-native"
+          - "http,openssl"
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1

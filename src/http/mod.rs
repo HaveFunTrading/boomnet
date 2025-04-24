@@ -134,7 +134,6 @@ impl ConnectionPool for SingleTlsConnectionPool {
 pub struct HttpRequest<C: ConnectionPool> {
     stream: Option<C::Stream>,
     connection_pool: Option<Rc<RefCell<C>>>,
-    buffer: Vec<u8>,
     read: usize,
     state: State,
     header_finder: Rc<Finder>,
@@ -200,7 +199,6 @@ impl<C: ConnectionPool> HttpRequest<C> {
         Ok(Self {
             stream: Some(stream),
             connection_pool: Some(connection_pool),
-            buffer: Vec::with_capacity(1024),
             read: 0,
             state: State::ReadingHeaders,
             header_finder,
@@ -209,17 +207,16 @@ impl<C: ConnectionPool> HttpRequest<C> {
 
     #[inline]
     pub fn block(mut self) -> io::Result<(u16, String, String)> {
+        let mut buffer = Vec::with_capacity(1024);
         loop {
-            if let Some((status_code, headers, body)) = self.poll()? {
+            if let Some((status_code, headers, body)) = self.poll(&mut buffer)? {
                 return Ok((status_code, headers.to_owned(), body.to_owned()));
             }
         }
     }
 
-    // read a chunk - disposable
-
     /// Returns (status_code, headers, body).
-    pub fn poll(&mut self) -> io::Result<Option<(u16, &str, &str)>> {
+    pub fn poll<'a>(&mut self, buffer: &'a mut Vec<u8>) -> io::Result<Option<(u16, &'a str, &'a str)>> {
         if let Some(ref mut stream) = self.stream {
             match self.state {
                 State::ReadingHeaders | State::ReadingBody { .. } => {
@@ -227,7 +224,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
                     match stream.read(&mut chunk).no_block() {
                         Ok(read) => {
                             if read > 0 {
-                                self.buffer.extend_from_slice(&chunk[..read]);
+                                buffer.extend_from_slice(&chunk[..read]);
                             }
                             self.read += read;
                         }
@@ -242,9 +239,9 @@ impl<C: ConnectionPool> HttpRequest<C> {
             match self.state {
                 State::ReadingHeaders => {
                     if self.read >= 4 {
-                        if let Some(headers_end) = self.header_finder.find(&self.buffer[..self.read], b"\r\n\r\n") {
+                        if let Some(headers_end) = self.header_finder.find(&buffer[..self.read], b"\r\n\r\n") {
                             let header_len = headers_end + 4;
-                            let header_slice = &self.buffer[..header_len];
+                            let header_slice = &buffer[..header_len];
                             // now parse headers
                             let mut headers = [EMPTY_HEADER; 32];
                             let mut resp = Response::new(&mut headers);
@@ -284,7 +281,6 @@ impl<C: ConnectionPool> HttpRequest<C> {
                 } => {
                     let total_len = header_len + content_len;
                     if self.read >= total_len {
-                        println!("{} {}", self.read, self.buffer.len());
                         self.state = State::Done {
                             header_len,
                             status_code,
@@ -295,7 +291,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
                     header_len,
                     status_code,
                 } => {
-                    let (headers, body) = self.buffer[..self.read].split_at(header_len);
+                    let (headers, body) = buffer[..self.read].split_at(header_len);
                     let headers =
                         std::str::from_utf8(headers).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
                     let body = std::str::from_utf8(body).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;

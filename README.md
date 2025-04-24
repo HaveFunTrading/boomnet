@@ -66,8 +66,7 @@ auto disconnect) through the `IOService`.
 `Endpoint` serves as low level construct for application logic. `IOService` oversees the connection lifecycle within endpoints.
 
 ## Protocols
-The aim is to support a variety of protocols, including WebSocket, HTTP, and FIX, with WebSocket client
-functionality currently available.
+The aim is to support a variety of protocols, including WebSocket, HTTP, and FIX.
 
 ### Websocket
 The websocket client protocol complies with the [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) specification,
@@ -76,9 +75,13 @@ offering the following features.
 * Compatibility with any stream.
 * TCP batch-aware frame processing.
 * Not blocking on partial frame(s).
+* No memory allocations (except to initialise buffers)
 * Designed for zero-copy read and write.
 * Optional masking of outbound frames.
 * Standalone usage or in conjunction with `IOService`.
+
+### Http
+Provides http 1.1 client that is compatible with any non-blocking stream and does perform memory allocations. 
 
 ## Example Usage
 
@@ -231,3 +234,6 @@ Adds dependency on `openssl` crate and enables `TlsStream` as well as more flexi
 
 ### `ws`
 Adds support for `Websocket` protocol.
+
+### `http`
+Adds support for `Http1.1` protocol.

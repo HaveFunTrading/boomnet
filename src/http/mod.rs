@@ -1,3 +1,4 @@
+use crate::stream::record::{IntoRecordedStream, RecordedStream};
 use crate::stream::tcp::TcpStream;
 use crate::stream::tls::{IntoTlsStream, TlsConfigExt, TlsStream};
 use crate::stream::ConnectionInfo;
@@ -23,14 +24,35 @@ impl<C: ConnectionPool> HttpClient<C> {
         }
     }
 
-    pub fn new_request(&mut self, method: Method, path: impl AsRef<str>) -> io::Result<HttpRequest<C>> {
+    pub fn new_request_with_headers<F>(
+        &mut self,
+        method: Method,
+        path: impl AsRef<str>,
+        builder: F,
+    ) -> io::Result<HttpRequest<C>>
+    where
+        F: FnOnce(&mut [(&str, &str)]) -> usize,
+    {
+        let mut headers = [("", ""); 32];
+        let count = builder(&mut headers);
         let stream = self
             .connection_pool
             .borrow_mut()
             .acquire()?
             .ok_or_else(|| io::Error::other("no available connection"))?;
-        let request = HttpRequest::new(method, path, stream, self.connection_pool.clone(), self.header_finder.clone())?;
+        let request = HttpRequest::new(
+            method,
+            path,
+            &headers[..count],
+            stream,
+            self.connection_pool.clone(),
+            self.header_finder.clone(),
+        )?;
         Ok(request)
+    }
+
+    pub fn new_request(&mut self, method: Method, path: impl AsRef<str>) -> io::Result<HttpRequest<C>> {
+        self.new_request_with_headers(method, path, |_| 0)
     }
 }
 
@@ -46,9 +68,8 @@ pub trait ConnectionPool: Sized {
 
 pub struct SingleTlsConnectionPool {
     connection_info: ConnectionInfo,
-    stream: Option<TlsStream<TcpStream>>,
+    stream: Option<RecordedStream<TlsStream<TcpStream>>>,
     has_active_connection: bool,
-    header_finder: Finder,
 }
 
 impl SingleTlsConnectionPool {
@@ -57,13 +78,12 @@ impl SingleTlsConnectionPool {
             connection_info: connection_info.into(),
             stream: None,
             has_active_connection: false,
-            header_finder: Finder::new(b"\r\n\r\n"),
         }
     }
 }
 
 impl ConnectionPool for SingleTlsConnectionPool {
-    type Stream = TlsStream<TcpStream>;
+    type Stream = RecordedStream<TlsStream<TcpStream>>;
 
     fn host(&self) -> &str {
         self.connection_info.host()
@@ -85,7 +105,8 @@ impl ConnectionPool for SingleTlsConnectionPool {
                     .connection_info
                     .clone()
                     .into_tcp_stream()?
-                    .into_tls_stream_with_config(|tls_cfg| tls_cfg.with_no_cert_verification())?;
+                    .into_tls_stream_with_config(|tls_cfg| tls_cfg.with_no_cert_verification())?
+                    .into_default_recorded_stream();
                 self.has_active_connection = true;
                 Ok(Some(stream))
             }
@@ -130,13 +151,28 @@ impl<C: ConnectionPool> HttpRequest<C> {
     fn new(
         method: Method,
         path: impl AsRef<str>,
+        headers: &[(&str, &str)],
         mut stream: C::Stream,
         connection_pool: Rc<RefCell<C>>,
         header_finder: Rc<Finder>,
     ) -> io::Result<HttpRequest<C>> {
-        // send to server here ...
-        let request = "GET /fapi/v1/time HTTP/1.1\r\nHost: fapi.binance.com\r\n\r\n";
-        stream.write_all(request.as_bytes())?;
+        stream.write_all(method.as_str().as_bytes())?;
+        stream.write_all(b" ")?;
+        stream.write_all(path.as_ref().as_bytes())?;
+        stream.write_all(b" HTTP/1.1\r\nHost: ")?;
+        stream.write_all(connection_pool.borrow().host().as_bytes())?;
+        if !headers.is_empty() {
+            stream.write_all(b"\r\n")?;
+            for header in headers {
+                stream.write_all(header.0.as_bytes())?;
+                stream.write_all(b": ")?;
+                stream.write_all(header.1.as_bytes())?;
+                stream.write_all(b"\r\n")?;
+            }
+            stream.write_all(b"\r\n")?;
+        } else {
+            stream.write_all(b"\r\n\r\n")?;
+        }
         stream.flush()?;
         Ok(Self {
             stream: Some(stream),

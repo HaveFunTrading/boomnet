@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::rc::Rc;
+use crate::stream::buffer::{BufferedStream, IntoBufferedStream};
 
 pub struct HttpClient<C: ConnectionPool> {
     connection_pool: Rc<RefCell<C>>,
@@ -75,7 +76,7 @@ pub trait ConnectionPool: Sized {
 
 pub struct SingleTlsConnectionPool {
     connection_info: ConnectionInfo,
-    stream: Option<RecordedStream<TlsStream<TcpStream>>>,
+    stream: Option<BufferedStream<TlsStream<TcpStream>>>,
     has_active_connection: bool,
 }
 
@@ -90,7 +91,7 @@ impl SingleTlsConnectionPool {
 }
 
 impl ConnectionPool for SingleTlsConnectionPool {
-    type Stream = RecordedStream<TlsStream<TcpStream>>;
+    type Stream = BufferedStream<TlsStream<TcpStream>>;
 
     fn host(&self) -> &str {
         self.connection_info.host()
@@ -113,7 +114,7 @@ impl ConnectionPool for SingleTlsConnectionPool {
                     .clone()
                     .into_tcp_stream()?
                     .into_tls_stream_with_config(|tls_cfg| tls_cfg.with_no_cert_verification())?
-                    .into_default_recorded_stream();
+                    .into_default_buffered_stream();
                 self.has_active_connection = true;
                 Ok(Some(stream))
             }

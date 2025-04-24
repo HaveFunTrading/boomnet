@@ -5,3 +5,5 @@ pub mod stream;
 mod util;
 #[cfg(feature = "ws")]
 pub mod ws;
+#[cfg(feature = "http")]
+pub mod http;

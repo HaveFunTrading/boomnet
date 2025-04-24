@@ -1,4 +1,29 @@
-use crate::stream::record::{IntoRecordedStream, RecordedStream};
+//! This module provides a reusable HTTP1.1 client built on top of a generic `ConnectionPool` trait.
+//!
+//! # Examples
+//!
+//! ```no_run
+//! // Create a TLS connection pool
+//! use http::Method;
+//! use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+//! use boomnet::stream::ConnectionInfo;
+//! 
+//! let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
+//! let mut client = HttpClient::new(pool);
+//!
+//! // Send a GET request and block until complete
+//! let (status, headers, body) = client
+//!     .new_request(Method::GET, "/", None)
+//!     .unwrap()
+//!     .block()
+//!     .unwrap();
+//!
+//! println!("Status: {}", status);
+//! println!("Headers: {}", headers);
+//! println!("Body: {}", body);
+//! ```
+
+use crate::stream::buffer::{BufferedStream, IntoBufferedStream};
 use crate::stream::tcp::TcpStream;
 use crate::stream::tls::{IntoTlsStream, TlsConfigExt, TlsStream};
 use crate::stream::ConnectionInfo;
@@ -10,14 +35,16 @@ use std::cell::RefCell;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::rc::Rc;
-use crate::stream::buffer::{BufferedStream, IntoBufferedStream};
 
+/// A generic HTTP client that uses a pooled connection strategy.
 pub struct HttpClient<C: ConnectionPool> {
     connection_pool: Rc<RefCell<C>>,
     header_finder: Rc<Finder>,
 }
 
 impl<C: ConnectionPool> HttpClient<C> {
+
+    /// Create a new HTTP client from the provided pool.
     pub fn new(connection_pool: C) -> HttpClient<C> {
         Self {
             connection_pool: Rc::new(RefCell::new(connection_pool)),
@@ -25,6 +52,27 @@ impl<C: ConnectionPool> HttpClient<C> {
         }
     }
 
+    /// Prepare a request with custom headers and optional body.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use http::Method;
+    /// use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+    /// use boomnet::stream::ConnectionInfo;
+    /// 
+    /// let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
+    /// let mut client = HttpClient::new(pool);
+    /// let req = client.new_request_with_headers(
+    ///     Method::POST,
+    ///     "/submit",
+    ///     Some(b"data"),
+    ///     |hdrs| {
+    ///         hdrs[0] = ("X-Custom", "Value");
+    ///         1
+    ///     }
+    /// ).unwrap();
+    /// ```
     pub fn new_request_with_headers<F>(
         &mut self,
         method: Method,
@@ -54,6 +102,23 @@ impl<C: ConnectionPool> HttpClient<C> {
         Ok(request)
     }
 
+    /// Prepare a request with no additional headers and optional body.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use http::Method;
+    /// use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+    /// use boomnet::stream::ConnectionInfo;
+    ///
+    /// let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
+    /// let mut client = HttpClient::new(pool);
+    /// let req = client.new_request(
+    ///     Method::POST,
+    ///     "/submit",
+    ///     Some(b"data"),
+    /// ).unwrap();
+    /// ```
     pub fn new_request(
         &mut self,
         method: Method,
@@ -64,16 +129,23 @@ impl<C: ConnectionPool> HttpClient<C> {
     }
 }
 
+/// Trait defining a pool of reusable connections.
 pub trait ConnectionPool: Sized {
+
+    /// Underlying stream type.
     type Stream: Read + Write;
 
+    /// Hostname for requests.
     fn host(&self) -> &str;
 
+    /// Acquire next free connection, if available.
     fn acquire(&mut self) -> io::Result<Option<Self::Stream>>;
 
+    /// Release a connection back into the pool.
     fn release(&mut self, stream: Option<Self::Stream>);
 }
 
+/// A single-connection pool over TLS, reconnecting on demand.
 pub struct SingleTlsConnectionPool {
     connection_info: ConnectionInfo,
     stream: Option<BufferedStream<TlsStream<TcpStream>>>,
@@ -81,6 +153,7 @@ pub struct SingleTlsConnectionPool {
 }
 
 impl SingleTlsConnectionPool {
+    /// Build a new TLS pool for the given connection info.
     pub fn new(connection_info: impl Into<ConnectionInfo>) -> SingleTlsConnectionPool {
         Self {
             connection_info: connection_info.into(),
@@ -132,9 +205,10 @@ impl ConnectionPool for SingleTlsConnectionPool {
     }
 }
 
+/// Represents an in-flight HTTP exchange.
 pub struct HttpRequest<C: ConnectionPool> {
     stream: Option<C::Stream>,
-    connection_pool: Option<Rc<RefCell<C>>>,
+    connection_pool: Rc<RefCell<C>>,
     read: usize,
     state: State,
     header_finder: Rc<Finder>,
@@ -199,13 +273,14 @@ impl<C: ConnectionPool> HttpRequest<C> {
         stream.flush()?;
         Ok(Self {
             stream: Some(stream),
-            connection_pool: Some(connection_pool),
+            connection_pool,
             read: 0,
             state: State::ReadingHeaders,
             header_finder,
         })
     }
 
+    /// Block until the full response is available.
     #[inline]
     pub fn block(mut self) -> io::Result<(u16, String, String)> {
         let mut buffer = Vec::with_capacity(1024);
@@ -216,7 +291,39 @@ impl<C: ConnectionPool> HttpRequest<C> {
         }
     }
 
-    /// Returns (status_code, headers, body).
+    /// Read from the stream and return when complete. Must provide buffer that will hold the response.
+    /// It's ok to re-use the buffer as long as it's been cleared before using it with a new request.
+    /// 
+    /// # Example
+    /// ```no_run
+    /// use http::Method;
+    /// use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+    /// use boomnet::stream::ConnectionInfo;
+    ///
+    /// let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
+    /// let mut client = HttpClient::new(pool);
+    /// 
+    /// let mut request = client.new_request_with_headers(
+    ///     Method::POST,
+    ///     "/submit",
+    ///     Some(b"data"),
+    ///     |hdrs| {
+    ///         hdrs[0] = ("X-Custom", "Value");
+    ///         1
+    ///     }
+    /// ).unwrap();
+    /// 
+    /// let mut buffer = Vec::with_capacity(1024);
+    /// loop {
+    ///     if let Some((status_code, headers, body)) = request.poll(&mut buffer).unwrap() {
+    ///         println!("{}", status_code);
+    ///         println!("{}", headers);
+    ///         println!("{}", body);
+    ///         break;
+    ///     }
+    /// }
+    /// 
+    /// ```
     pub fn poll<'a>(&mut self, buffer: &'a mut Vec<u8>) -> io::Result<Option<(u16, &'a str, &'a str)>> {
         if let Some(ref mut stream) = self.stream {
             match self.state {
@@ -306,8 +413,6 @@ impl<C: ConnectionPool> HttpRequest<C> {
 
 impl<C: ConnectionPool> Drop for HttpRequest<C> {
     fn drop(&mut self) {
-        if let Some(pool) = self.connection_pool.as_mut() {
-            pool.borrow_mut().release(self.stream.take());
-        }
+        self.connection_pool.borrow_mut().release(self.stream.take());
     }
 }

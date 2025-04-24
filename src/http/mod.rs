@@ -42,8 +42,6 @@ pub trait ConnectionPool: Sized {
     fn acquire(&mut self) -> io::Result<Option<Self::Stream>>;
 
     fn release(&mut self, stream: Option<Self::Stream>);
-
-    fn header_finder(&self) -> &Finder;
 }
 
 pub struct SingleTlsConnectionPool {
@@ -54,9 +52,9 @@ pub struct SingleTlsConnectionPool {
 }
 
 impl SingleTlsConnectionPool {
-    pub fn new(connection_info: ConnectionInfo) -> SingleTlsConnectionPool {
+    pub fn new(connection_info: impl Into<ConnectionInfo>) -> SingleTlsConnectionPool {
         Self {
-            connection_info,
+            connection_info: connection_info.into(),
             stream: None,
             has_active_connection: false,
             header_finder: Finder::new(b"\r\n\r\n"),
@@ -79,7 +77,7 @@ impl ConnectionPool for SingleTlsConnectionPool {
             }
             (Some(stream), false) => {
                 self.has_active_connection = true;
-                Ok(self.stream.take())
+                Ok(Some(stream))
             }
             (None, true) => Ok(None),
             (None, false) => {
@@ -103,11 +101,6 @@ impl ConnectionPool for SingleTlsConnectionPool {
             }
         }
     }
-
-    #[inline]
-    fn header_finder(&self) -> &Finder {
-        &self.header_finder
-    }
 }
 
 pub struct HttpRequest<C: ConnectionPool> {
@@ -119,11 +112,16 @@ pub struct HttpRequest<C: ConnectionPool> {
     header_finder: Rc<Finder>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
 enum State {
     ReadingHeaders,
     ReadingBody {
         header_len: usize,
         content_len: usize,
+        status_code: u16,
+    },
+    Done {
+        header_len: usize,
         status_code: u16,
     },
 }
@@ -150,21 +148,30 @@ impl<C: ConnectionPool> HttpRequest<C> {
         })
     }
 
-    pub fn is_done(&self) -> bool {
-        false
+    #[inline]
+    pub fn block(mut self) -> io::Result<(u16, String, String)> {
+        loop {
+            if let Some((status_code, headers, body)) = self.poll()? {
+                return Ok((status_code, headers.to_owned(), body.to_owned()));
+            }
+        }
     }
 
     /// Returns (status_code, headers, body).
     pub fn poll(&mut self) -> io::Result<Option<(u16, &str, &str)>> {
         if let Some(ref mut stream) = self.stream {
-            match stream.read(&mut self.buffer[self.read..]).no_block() {
-                Ok(read) => self.read += read,
-                Err(err) => {
-                    let _ = self.stream.take();
-                    return Err(err);
+            match self.state {
+                State::ReadingHeaders | State::ReadingBody { .. } => {
+                    match stream.read(&mut self.buffer[self.read..]).no_block() {
+                        Ok(read) => self.read += read,
+                        Err(err) => {
+                            let _ = self.stream.take();
+                            return Err(err);
+                        }
+                    }
                 }
+                State::Done { .. } => {}
             }
-
             match self.state {
                 State::ReadingHeaders => {
                     if self.read >= 4 {
@@ -210,14 +217,21 @@ impl<C: ConnectionPool> HttpRequest<C> {
                 } => {
                     let total_len = header_len + content_len;
                     if self.read >= total_len {
-                        let (headers, body) = self.buffer[..self.read].split_at(header_len);
-                        let headers =
-                            std::str::from_utf8(headers).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-                        let body = std::str::from_utf8(body).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-                        let a = headers.len() + body.len();
-                        self.state = State::ReadingHeaders;
-                        return Ok(Some((status_code, headers, body)));
+                        self.state = State::Done {
+                            header_len,
+                            status_code,
+                        };
                     }
+                }
+                State::Done {
+                    header_len,
+                    status_code,
+                } => {
+                    let (headers, body) = self.buffer[..self.read].split_at(header_len);
+                    let headers =
+                        std::str::from_utf8(headers).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+                    let body = std::str::from_utf8(body).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+                    return Ok(Some((status_code, headers, body)));
                 }
             }
         }

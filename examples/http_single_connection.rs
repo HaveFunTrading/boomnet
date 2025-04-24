@@ -1,9 +1,8 @@
-use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+use boomnet::http::{ConnectionPool, SingleTlsConnectionPool};
 use http::Method;
 
 fn main() -> anyhow::Result<()> {
-    let pool = SingleTlsConnectionPool::new(("fapi.binance.com", 443));
-    let mut client = HttpClient::new(pool);
+    let mut client = SingleTlsConnectionPool::new(("fapi.binance.com", 443)).into_http_client();
 
     let request = client.new_request_with_headers(Method::GET, "/fapi/v1/depth?symbol=BTCUSDT", None, |headers| {
         headers[0] = ("FOO", "bar");

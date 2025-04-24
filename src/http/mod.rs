@@ -5,11 +5,10 @@
 //! ```no_run
 //! // Create a TLS connection pool
 //! use http::Method;
-//! use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+//! use boomnet::http::{ConnectionPool, HttpClient, SingleTlsConnectionPool};
 //! use boomnet::stream::ConnectionInfo;
-//! 
-//! let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
-//! let mut client = HttpClient::new(pool);
+//!
+//! let mut client = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443)).into_http_client();
 //!
 //! // Send a GET request and block until complete
 //! let (status, headers, body) = client
@@ -43,7 +42,6 @@ pub struct HttpClient<C: ConnectionPool> {
 }
 
 impl<C: ConnectionPool> HttpClient<C> {
-
     /// Create a new HTTP client from the provided pool.
     pub fn new(connection_pool: C) -> HttpClient<C> {
         Self {
@@ -58,11 +56,11 @@ impl<C: ConnectionPool> HttpClient<C> {
     ///
     /// ```no_run
     /// use http::Method;
-    /// use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+    /// use boomnet::http::{ConnectionPool, HttpClient, SingleTlsConnectionPool};
     /// use boomnet::stream::ConnectionInfo;
-    /// 
-    /// let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
-    /// let mut client = HttpClient::new(pool);
+    ///
+    /// let mut client = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443)).into_http_client();
+    ///
     /// let req = client.new_request_with_headers(
     ///     Method::POST,
     ///     "/submit",
@@ -108,11 +106,10 @@ impl<C: ConnectionPool> HttpClient<C> {
     ///
     /// ```no_run
     /// use http::Method;
-    /// use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+    /// use boomnet::http::{ConnectionPool , SingleTlsConnectionPool};
     /// use boomnet::stream::ConnectionInfo;
     ///
-    /// let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
-    /// let mut client = HttpClient::new(pool);
+    /// let mut client = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443)).into_http_client();
     /// let req = client.new_request(
     ///     Method::POST,
     ///     "/submit",
@@ -131,6 +128,10 @@ impl<C: ConnectionPool> HttpClient<C> {
 
 /// Trait defining a pool of reusable connections.
 pub trait ConnectionPool: Sized {
+    /// Turn this connection pool into http client.
+    fn into_http_client(self) -> HttpClient<Self> {
+        HttpClient::new(self)
+    }
 
     /// Underlying stream type.
     type Stream: Read + Write;
@@ -293,16 +294,15 @@ impl<C: ConnectionPool> HttpRequest<C> {
 
     /// Read from the stream and return when complete. Must provide buffer that will hold the response.
     /// It's ok to re-use the buffer as long as it's been cleared before using it with a new request.
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// use http::Method;
-    /// use boomnet::http::{HttpClient, SingleTlsConnectionPool};
+    /// use boomnet::http::{ConnectionPool , SingleTlsConnectionPool};
     /// use boomnet::stream::ConnectionInfo;
     ///
-    /// let pool = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443));
-    /// let mut client = HttpClient::new(pool);
-    /// 
+    /// let mut client = SingleTlsConnectionPool::new(ConnectionInfo::new("example.com", 443)).into_http_client();
+    ///
     /// let mut request = client.new_request_with_headers(
     ///     Method::POST,
     ///     "/submit",
@@ -312,7 +312,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
     ///         1
     ///     }
     /// ).unwrap();
-    /// 
+    ///
     /// let mut buffer = Vec::with_capacity(1024);
     /// loop {
     ///     if let Some((status_code, headers, body)) = request.poll(&mut buffer).unwrap() {
@@ -322,7 +322,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
     ///         break;
     ///     }
     /// }
-    /// 
+    ///
     /// ```
     pub fn poll<'a>(&mut self, buffer: &'a mut Vec<u8>) -> io::Result<Option<(u16, &'a str, &'a str)>> {
         if let Some(ref mut stream) = self.stream {

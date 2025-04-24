@@ -134,7 +134,7 @@ impl ConnectionPool for SingleTlsConnectionPool {
 pub struct HttpRequest<C: ConnectionPool> {
     stream: Option<C::Stream>,
     connection_pool: Option<Rc<RefCell<C>>>,
-    buffer: [u8; 1024],
+    buffer: Vec<u8>,
     read: usize,
     state: State,
     header_finder: Rc<Finder>,
@@ -200,7 +200,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
         Ok(Self {
             stream: Some(stream),
             connection_pool: Some(connection_pool),
-            buffer: [0u8; 1024],
+            buffer: Vec::with_capacity(1024),
             read: 0,
             state: State::ReadingHeaders,
             header_finder,
@@ -216,13 +216,21 @@ impl<C: ConnectionPool> HttpRequest<C> {
         }
     }
 
+    // read a chunk - disposable
+
     /// Returns (status_code, headers, body).
     pub fn poll(&mut self) -> io::Result<Option<(u16, &str, &str)>> {
         if let Some(ref mut stream) = self.stream {
             match self.state {
                 State::ReadingHeaders | State::ReadingBody { .. } => {
-                    match stream.read(&mut self.buffer[self.read..]).no_block() {
-                        Ok(read) => self.read += read,
+                    let mut chunk = [0u8; 1024];
+                    match stream.read(&mut chunk).no_block() {
+                        Ok(read) => {
+                            if read > 0 {
+                                self.buffer.extend_from_slice(&chunk[..read]);
+                            }
+                            self.read += read;
+                        }
                         Err(err) => {
                             let _ = self.stream.take();
                             return Err(err);
@@ -276,6 +284,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
                 } => {
                     let total_len = header_len + content_len;
                     if self.read >= total_len {
+                        println!("{} {}", self.read, self.buffer.len());
                         self.state = State::Done {
                             header_len,
                             status_code,

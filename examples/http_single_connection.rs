@@ -8,8 +8,9 @@ fn main() -> anyhow::Result<()> {
     let body = r#"{"msg":"hello world"}"#.as_bytes();
     
     let request = client.new_request_with_headers(Method::GET, "/fapi/v1/depth?symbol=BTCUSDT", None, |headers| {
-        headers[0] = ("FOO", "bar");
-        1
+        // headers[0] = ("FOO", "bar");
+        // 1
+        0
     })?;
 
     // execute in blocking mode (will consume request)

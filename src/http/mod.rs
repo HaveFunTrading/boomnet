@@ -35,6 +35,8 @@ use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::rc::Rc;
 
+type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
+
 /// A generic HTTP client that uses a pooled connection strategy.
 pub struct HttpClient<C: ConnectionPool> {
     connection_pool: Rc<RefCell<C>>,
@@ -83,7 +85,7 @@ impl<C: ConnectionPool> HttpClient<C> {
     {
         let mut headers = [("", ""); 32];
         let count = builder(&mut headers);
-        let stream = self
+        let conn = self
             .connection_pool
             .borrow_mut()
             .acquire()?
@@ -93,7 +95,7 @@ impl<C: ConnectionPool> HttpClient<C> {
             path,
             body,
             &headers[..count],
-            stream,
+            conn,
             self.connection_pool.clone(),
             self.header_finder.clone(),
         )?;
@@ -128,28 +130,28 @@ impl<C: ConnectionPool> HttpClient<C> {
 
 /// Trait defining a pool of reusable connections.
 pub trait ConnectionPool: Sized {
+    /// Underlying stream type.
+    type Stream: Read + Write;
+
     /// Turn this connection pool into http client.
     fn into_http_client(self) -> HttpClient<Self> {
         HttpClient::new(self)
     }
 
-    /// Underlying stream type.
-    type Stream: Read + Write;
-
     /// Hostname for requests.
     fn host(&self) -> &str;
 
     /// Acquire next free connection, if available.
-    fn acquire(&mut self) -> io::Result<Option<Self::Stream>>;
+    fn acquire(&mut self) -> io::Result<Option<Connection<Self::Stream>>>;
 
     /// Release a connection back into the pool.
-    fn release(&mut self, stream: Option<Self::Stream>);
+    fn release(&mut self, stream: Option<Connection<Self::Stream>>);
 }
 
 /// A single-connection pool over TLS, reconnecting on demand.
 pub struct SingleTlsConnectionPool {
     connection_info: ConnectionInfo,
-    stream: Option<BufferedStream<TlsStream<TcpStream>>>,
+    conn: Option<HttpTlsConnection>,
     has_active_connection: bool,
 }
 
@@ -158,7 +160,7 @@ impl SingleTlsConnectionPool {
     pub fn new(connection_info: impl Into<ConnectionInfo>) -> SingleTlsConnectionPool {
         Self {
             connection_info: connection_info.into(),
-            stream: None,
+            conn: None,
             has_active_connection: false,
         }
     }
@@ -171,8 +173,8 @@ impl ConnectionPool for SingleTlsConnectionPool {
         self.connection_info.host()
     }
 
-    fn acquire(&mut self) -> io::Result<Option<Self::Stream>> {
-        match (self.stream.take(), self.has_active_connection) {
+    fn acquire(&mut self) -> io::Result<Option<Connection<Self::Stream>>> {
+        match (self.conn.take(), self.has_active_connection) {
             (Some(_), true) => {
                 // we can at most have one active connection
                 unreachable!()
@@ -190,17 +192,16 @@ impl ConnectionPool for SingleTlsConnectionPool {
                     .into_tls_stream_with_config(|tls_cfg| tls_cfg.with_no_cert_verification())?
                     .into_default_buffered_stream();
                 self.has_active_connection = true;
-                Ok(Some(stream))
+                Ok(Some(Connection::new(stream)))
             }
         }
     }
 
-    fn release(&mut self, stream: Option<Self::Stream>) {
+    fn release(&mut self, conn: Option<Connection<Self::Stream>>) {
         self.has_active_connection = false;
-        match stream {
-            None => {}
-            Some(stream) => {
-                let _ = self.stream.insert(stream);
+        if let Some(mut conn) = conn {
+            if !conn.disconnected {
+                let _ = self.conn.insert(conn);
             }
         }
     }
@@ -208,7 +209,7 @@ impl ConnectionPool for SingleTlsConnectionPool {
 
 /// Represents an in-flight HTTP exchange.
 pub struct HttpRequest<C: ConnectionPool> {
-    stream: Option<C::Stream>,
+    conn: Option<Connection<C::Stream>>,
     connection_pool: Rc<RefCell<C>>,
     state: State,
     header_finder: Rc<Finder>,
@@ -234,45 +235,45 @@ impl<C: ConnectionPool> HttpRequest<C> {
         path: impl AsRef<str>,
         body: Option<&[u8]>,
         headers: &[(&str, &str)],
-        mut stream: C::Stream,
+        mut conn: Connection<C::Stream>,
         connection_pool: Rc<RefCell<C>>,
         header_finder: Rc<Finder>,
     ) -> io::Result<HttpRequest<C>> {
-        stream.write_all(method.as_str().as_bytes())?;
-        stream.write_all(b" ")?;
-        stream.write_all(path.as_ref().as_bytes())?;
-        stream.write_all(b" HTTP/1.1\r\nHost: ")?;
-        stream.write_all(connection_pool.borrow().host().as_bytes())?;
+        conn.write_all(method.as_str().as_bytes())?;
+        conn.write_all(b" ")?;
+        conn.write_all(path.as_ref().as_bytes())?;
+        conn.write_all(b" HTTP/1.1\r\nHost: ")?;
+        conn.write_all(connection_pool.borrow().host().as_bytes())?;
         if !headers.is_empty() {
-            stream.write_all(b"\r\n")?;
+            conn.write_all(b"\r\n")?;
             for header in headers {
-                stream.write_all(header.0.as_bytes())?;
-                stream.write_all(b": ")?;
-                stream.write_all(header.1.as_bytes())?;
-                stream.write_all(b"\r\n")?;
+                conn.write_all(header.0.as_bytes())?;
+                conn.write_all(b": ")?;
+                conn.write_all(header.1.as_bytes())?;
+                conn.write_all(b"\r\n")?;
             }
             if let Some(body) = body {
-                stream.write_all(b"Content-Length: ")?;
+                conn.write_all(b"Content-Length: ")?;
                 let mut buf = itoa::Buffer::new();
-                stream.write_all(buf.format(body.len()).as_bytes())?;
-                stream.write_all(b"\r\n")?;
+                conn.write_all(buf.format(body.len()).as_bytes())?;
+                conn.write_all(b"\r\n")?;
             }
-            stream.write_all(b"\r\n")?;
+            conn.write_all(b"\r\n")?;
         } else if let Some(body) = body {
-            stream.write_all(b"\r\n")?;
-            stream.write_all(b"Content-Length: ")?;
+            conn.write_all(b"\r\n")?;
+            conn.write_all(b"Content-Length: ")?;
             let mut buf = itoa::Buffer::new();
-            stream.write_all(buf.format(body.as_ref().len()).as_bytes())?;
-            stream.write_all(b"\r\n\r\n")?;
+            conn.write_all(buf.format(body.as_ref().len()).as_bytes())?;
+            conn.write_all(b"\r\n\r\n")?;
         } else {
-            stream.write_all(b"\r\n\r\n")?;
+            conn.write_all(b"\r\n\r\n")?;
         }
         if let Some(body) = body {
-            stream.write_all(body)?;
+            conn.write_all(body)?;
         }
-        stream.flush()?;
+        conn.flush()?;
         Ok(Self {
-            stream: Some(stream),
+            conn: Some(conn),
             connection_pool,
             state: State::ReadingHeaders,
             header_finder,
@@ -282,9 +283,8 @@ impl<C: ConnectionPool> HttpRequest<C> {
     /// Block until the full response is available.
     #[inline]
     pub fn block(mut self) -> io::Result<(u16, String, String)> {
-        let mut buffer = Vec::with_capacity(1024);
         loop {
-            if let Some((status_code, headers, body)) = self.poll(&mut buffer)? {
+            if let Some((status_code, headers, body)) = self.poll()? {
                 return Ok((status_code, headers.to_owned(), body.to_owned()));
             }
         }
@@ -311,9 +311,8 @@ impl<C: ConnectionPool> HttpRequest<C> {
     ///     }
     /// ).unwrap();
     ///
-    /// let mut buffer = Vec::with_capacity(1024);
     /// loop {
-    ///     if let Some((status_code, headers, body)) = request.poll(&mut buffer).unwrap() {
+    ///     if let Some((status_code, headers, body)) = request.poll().unwrap() {
     ///         println!("{}", status_code);
     ///         println!("{}", headers);
     ///         println!("{}", body);
@@ -322,31 +321,18 @@ impl<C: ConnectionPool> HttpRequest<C> {
     /// }
     ///
     /// ```
-    pub fn poll<'a>(&mut self, buffer: &'a mut Vec<u8>) -> io::Result<Option<(u16, &'a str, &'a str)>> {
-        if let Some(ref mut stream) = self.stream {
+    pub fn poll(&mut self) -> io::Result<Option<(u16, &str, &str)>> {
+        if let Some(conn) = self.conn.as_mut() {
             match self.state {
-                State::ReadingHeaders | State::ReadingBody { .. } => {
-                    let mut chunk = [0u8; 1024];
-                    match stream.read(&mut chunk).no_block() {
-                        Ok(read) => {
-                            if read > 0 {
-                                buffer.extend_from_slice(&chunk[..read]);
-                            }
-                        }
-                        Err(err) => {
-                            let _ = self.stream.take();
-                            return Err(err);
-                        }
-                    }
-                }
+                State::ReadingHeaders | State::ReadingBody { .. } => conn.poll()?,
                 State::Done { .. } => {}
             }
             match self.state {
                 State::ReadingHeaders => {
-                    if buffer.len() >= 4 {
-                        if let Some(headers_end) = self.header_finder.find(buffer, b"\r\n\r\n") {
+                    if conn.buffer.len() >= 4 {
+                        if let Some(headers_end) = self.header_finder.find(&conn.buffer, b"\r\n\r\n") {
                             let header_len = headers_end + 4;
-                            let header_slice = &buffer[..header_len];
+                            let header_slice = &conn.buffer[..header_len];
                             // now parse headers
                             let mut headers = [EMPTY_HEADER; 32];
                             let mut resp = Response::new(&mut headers);
@@ -385,7 +371,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
                     status_code,
                 } => {
                     let total_len = header_len + content_len;
-                    if buffer.len() >= total_len {
+                    if conn.buffer.len() >= total_len {
                         self.state = State::Done {
                             header_len,
                             status_code,
@@ -396,7 +382,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
                     header_len,
                     status_code,
                 } => {
-                    let (headers, body) = buffer.split_at(header_len);
+                    let (headers, body) = conn.buffer.split_at(header_len);
                     let headers =
                         std::str::from_utf8(headers).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
                     let body = std::str::from_utf8(body).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
@@ -410,6 +396,60 @@ impl<C: ConnectionPool> HttpRequest<C> {
 
 impl<C: ConnectionPool> Drop for HttpRequest<C> {
     fn drop(&mut self) {
-        self.connection_pool.borrow_mut().release(self.stream.take());
+        if let Some(conn) = self.conn.as_mut() {
+            conn.buffer.clear();
+        }
+        self.connection_pool.borrow_mut().release(self.conn.take());
+    }
+}
+
+pub struct Connection<S> {
+    stream: S,
+    buffer: Vec<u8>,
+    disconnected: bool,
+}
+
+impl<S: Read + Write> Connection<S> {
+    #[inline]
+    fn poll(&mut self) -> io::Result<()> {
+        if self.disconnected {
+            return Err(io::Error::new(ErrorKind::NotConnected, "connection closed"));
+        }
+        let mut chunk = [0u8; 1024];
+        match self.stream.read(&mut chunk).no_block() {
+            Ok(read) => {
+                if read > 0 {
+                    self.buffer.extend_from_slice(&chunk[..read]);
+                }
+                Ok(())
+            }
+            Err(err) => {
+                self.disconnected = true;
+                Err(err)
+            }
+        }
+    }
+}
+
+impl<S: Write> Write for Connection<S> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.stream.write(buf)
+    }
+
+    #[inline]
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
+    }
+}
+
+impl<S> Connection<S> {
+    #[inline]
+    fn new(stream: S) -> Self {
+        Self {
+            stream,
+            buffer: Vec::with_capacity(1024),
+            disconnected: false,
+        }
     }
 }

@@ -27,13 +27,16 @@ use crate::stream::tcp::TcpStream;
 use crate::stream::tls::{IntoTlsStream, TlsConfigExt, TlsStream};
 use crate::stream::ConnectionInfo;
 use crate::util::NoBlock;
-use http::Method;
+
 use httparse::{Response, EMPTY_HEADER};
 use memchr::arch::all::rabinkarp::Finder;
 use std::cell::RefCell;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::rc::Rc;
+
+// re-export
+pub use http::Method;
 
 type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
 

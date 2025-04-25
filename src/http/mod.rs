@@ -40,7 +40,6 @@ type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
 /// A generic HTTP client that uses a pooled connection strategy.
 pub struct HttpClient<C: ConnectionPool> {
     connection_pool: Rc<RefCell<C>>,
-    header_finder: Rc<Finder>,
 }
 
 impl<C: ConnectionPool> HttpClient<C> {
@@ -48,7 +47,6 @@ impl<C: ConnectionPool> HttpClient<C> {
     pub fn new(connection_pool: C) -> HttpClient<C> {
         Self {
             connection_pool: Rc::new(RefCell::new(connection_pool)),
-            header_finder: Rc::new(Finder::new(b"\r\n\r\n")),
         }
     }
 
@@ -90,15 +88,7 @@ impl<C: ConnectionPool> HttpClient<C> {
             .borrow_mut()
             .acquire()?
             .ok_or_else(|| io::Error::other("no available connection"))?;
-        let request = HttpRequest::new(
-            method,
-            path,
-            body,
-            &headers[..count],
-            conn,
-            self.connection_pool.clone(),
-            self.header_finder.clone(),
-        )?;
+        let request = HttpRequest::new(method, path, body, &headers[..count], conn, self.connection_pool.clone())?;
         Ok(request)
     }
 
@@ -199,7 +189,7 @@ impl ConnectionPool for SingleTlsConnectionPool {
 
     fn release(&mut self, conn: Option<Connection<Self::Stream>>) {
         self.has_active_connection = false;
-        if let Some(mut conn) = conn {
+        if let Some(conn) = conn {
             if !conn.disconnected {
                 let _ = self.conn.insert(conn);
             }
@@ -210,9 +200,8 @@ impl ConnectionPool for SingleTlsConnectionPool {
 /// Represents an in-flight HTTP exchange.
 pub struct HttpRequest<C: ConnectionPool> {
     conn: Option<Connection<C::Stream>>,
-    connection_pool: Rc<RefCell<C>>,
+    pool: Rc<RefCell<C>>,
     state: State,
-    header_finder: Rc<Finder>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -236,14 +225,13 @@ impl<C: ConnectionPool> HttpRequest<C> {
         body: Option<&[u8]>,
         headers: &[(&str, &str)],
         mut conn: Connection<C::Stream>,
-        connection_pool: Rc<RefCell<C>>,
-        header_finder: Rc<Finder>,
+        pool: Rc<RefCell<C>>,
     ) -> io::Result<HttpRequest<C>> {
         conn.write_all(method.as_str().as_bytes())?;
         conn.write_all(b" ")?;
         conn.write_all(path.as_ref().as_bytes())?;
         conn.write_all(b" HTTP/1.1\r\nHost: ")?;
-        conn.write_all(connection_pool.borrow().host().as_bytes())?;
+        conn.write_all(pool.borrow().host().as_bytes())?;
         if !headers.is_empty() {
             conn.write_all(b"\r\n")?;
             for header in headers {
@@ -274,9 +262,8 @@ impl<C: ConnectionPool> HttpRequest<C> {
         conn.flush()?;
         Ok(Self {
             conn: Some(conn),
-            connection_pool,
+            pool,
             state: State::ReadingHeaders,
-            header_finder,
         })
     }
 
@@ -330,7 +317,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
             match self.state {
                 State::ReadingHeaders => {
                     if conn.buffer.len() >= 4 {
-                        if let Some(headers_end) = self.header_finder.find(&conn.buffer, b"\r\n\r\n") {
+                        if let Some(headers_end) = conn.header_finder.find(&conn.buffer, b"\r\n\r\n") {
                             let header_len = headers_end + 4;
                             let header_slice = &conn.buffer[..header_len];
                             // now parse headers
@@ -399,23 +386,26 @@ impl<C: ConnectionPool> Drop for HttpRequest<C> {
         if let Some(conn) = self.conn.as_mut() {
             conn.buffer.clear();
         }
-        self.connection_pool.borrow_mut().release(self.conn.take());
+        self.pool.borrow_mut().release(self.conn.take());
     }
 }
 
-pub struct Connection<S> {
+/// Connection managed by the `ConnectionPool`. Binds underlying stream together with buffer used
+/// for reading data. The reading is performed in chunks with default size of 1024 bytes.
+pub struct Connection<S, const CHUNK_SIZE: usize = 1024> {
     stream: S,
     buffer: Vec<u8>,
     disconnected: bool,
+    header_finder: Finder,
 }
 
-impl<S: Read + Write> Connection<S> {
+impl<S: Read + Write, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
     #[inline]
     fn poll(&mut self) -> io::Result<()> {
         if self.disconnected {
             return Err(io::Error::new(ErrorKind::NotConnected, "connection closed"));
         }
-        let mut chunk = [0u8; 1024];
+        let mut chunk = [0u8; CHUNK_SIZE];
         match self.stream.read(&mut chunk).no_block() {
             Ok(read) => {
                 if read > 0 {
@@ -443,13 +433,14 @@ impl<S: Write> Write for Connection<S> {
     }
 }
 
-impl<S> Connection<S> {
+impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
     #[inline]
     fn new(stream: S) -> Self {
         Self {
             stream,
-            buffer: Vec::with_capacity(1024),
+            buffer: Vec::with_capacity(CHUNK_SIZE),
             disconnected: false,
+            header_finder: Finder::new(b"\r\n\r\n"),
         }
     }
 }

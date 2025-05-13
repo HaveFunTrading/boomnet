@@ -1,9 +1,8 @@
 //! Entry point for the application logic.
 
+use crate::stream::ConnectionInfoProvider;
 use std::io;
 use std::net::SocketAddr;
-
-use crate::stream::ConnectionInfoProvider;
 
 /// Entry point for the application logic. Endpoints are registered and Managed by 'IOService'.
 pub trait Endpoint: ConnectionInfoProvider {

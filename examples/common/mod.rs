@@ -3,7 +3,7 @@ use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebs
 use boomnet::service::endpoint::Context;
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tcp::TcpStream;
-use boomnet::stream::tls::IntoTlsStream;
+use boomnet::stream::tls::{IntoTlsStream, TlsConfigExt};
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{IntoTlsWebsocket, IntoWebsocket, WebsocketFrame};
 use log::info;
@@ -25,10 +25,22 @@ pub struct TradeEndpoint {
     connection_info: ConnectionInfo,
     instrument: &'static str,
     ws_endpoint: String,
+    subscribe: bool,
 }
 
 impl TradeEndpoint {
+    #[allow(dead_code)]
     pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
+        Self::new_with_subscribe(id, url, net_iface, instrument, true)
+    }
+
+    pub fn new_with_subscribe(
+        id: u32,
+        url: &'static str,
+        net_iface: Option<&'static str>,
+        instrument: &'static str,
+        subscribe: bool,
+    ) -> TradeEndpoint {
         let (mut connection_info, ws_endpoint, _) = boomnet::ws::util::parse_url(url).unwrap();
         if let Some(net_iface) = net_iface {
             connection_info = connection_info.with_net_iface_from_name(net_iface);
@@ -38,7 +50,16 @@ impl TradeEndpoint {
             connection_info,
             instrument,
             ws_endpoint,
+            subscribe,
         }
+    }
+
+    pub fn subscribe(&mut self, ws: &mut TlsWebsocket<MioStream>) -> io::Result<()> {
+        ws.send_text(
+            true,
+            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
+        )?;
+        Ok(())
     }
 }
 
@@ -54,13 +75,12 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
     fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<TlsWebsocket<Self::Stream>>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
-            .into_tls_stream()?
+            .into_tls_stream_with_config(|cfg| cfg.with_no_cert_verification())?
             .into_websocket(&self.ws_endpoint);
 
-        ws.send_text(
-            true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
-        )?;
+        if self.subscribe {
+            self.subscribe(&mut ws)?;
+        }
 
         Ok(Some(ws))
     }
@@ -94,10 +114,9 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
             .into_mio_stream()
             .into_tls_websocket(&self.ws_endpoint)?;
 
-        ws.send_text(
-            true,
-            Some(format!(r#"{{"method":"SUBSCRIBE","params":["{}@trade"],"id":1}}"#, self.instrument).as_bytes()),
-        )?;
+        if self.subscribe {
+            self.subscribe(&mut ws)?;
+        }
 
         Ok(Some(ws))
     }

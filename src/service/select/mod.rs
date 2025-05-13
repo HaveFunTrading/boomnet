@@ -8,6 +8,7 @@ pub mod direct;
 #[cfg(feature = "mio")]
 pub mod mio;
 
+/// Used to uniquely identify a socket (connection) by the `Selector`.
 pub type SelectorToken = u32;
 
 pub trait Selectable {
@@ -21,9 +22,11 @@ pub trait Selectable {
 pub trait Selector {
     type Target: Selectable;
 
-    fn register<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<SelectorToken>;
+    fn register<E>(&mut self, selector_token: SelectorToken, io_node: &mut IONode<Self::Target, E>) -> io::Result<()>;
 
     fn unregister<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<()>;
 
     fn poll<E>(&mut self, io_nodes: &mut HashMap<SelectorToken, IONode<Self::Target, E>>) -> io::Result<()>;
+
+    fn next_token(&mut self) -> SelectorToken;
 }

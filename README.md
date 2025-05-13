@@ -219,6 +219,7 @@ The framework feature set is modular, allowing for tailored functionality based 
 * [rustls-webpki](#rustls-webpki)
 * [openssl](#openssl)
 * [ws](#ws)
+* [http](#http)
 
 ### `mio`
 Adds dependency on `mio` crate and enables `MioSelector` and `MioStream`.

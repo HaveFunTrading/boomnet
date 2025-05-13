@@ -38,7 +38,6 @@ impl Selectable for MioStream {
         if self.connected {
             return Ok(true);
         }
-
         match self.inner.peer_addr() {
             Ok(_) => {
                 self.connected = true;

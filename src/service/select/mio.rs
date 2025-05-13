@@ -34,13 +34,12 @@ impl<S> MioSelector<S> {
 impl<S: Source + Selectable> Selector for MioSelector<S> {
     type Target = S;
 
-    fn register<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<SelectorToken> {
-        let token = Token(self.next_token as usize);
-        self.next_token += 1;
+    fn register<E>(&mut self, selector_token: SelectorToken, io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
+        let token = Token(selector_token as usize);
         self.poll
             .registry()
             .register(io_node.as_stream_mut(), token, Interest::WRITABLE)?;
-        Ok(token.0 as SelectorToken)
+        Ok(())
     }
 
     fn unregister<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
@@ -64,6 +63,13 @@ impl<S: Source + Selectable> Selector for MioSelector<S> {
             }
         }
         Ok(())
+    }
+
+    #[inline]
+    fn next_token(&mut self) -> SelectorToken {
+        let token = self.next_token;
+        self.next_token += 1;
+        token
     }
 }
 

@@ -24,10 +24,12 @@ impl<S> DirectSelector<S> {
 impl<S: Selectable> Selector for DirectSelector<S> {
     type Target = S;
 
-    fn register<E>(&mut self, _io_node: &mut IONode<Self::Target, E>) -> io::Result<SelectorToken> {
-        let token = self.next_token;
-        self.next_token += 1;
-        Ok(token)
+    fn register<E>(
+        &mut self,
+        _selector_token: SelectorToken,
+        _io_node: &mut IONode<Self::Target, E>,
+    ) -> io::Result<()> {
+        Ok(())
     }
 
     fn unregister<E>(&mut self, _io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
@@ -36,6 +38,12 @@ impl<S: Selectable> Selector for DirectSelector<S> {
 
     fn poll<E>(&mut self, _io_nodes: &mut HashMap<SelectorToken, IONode<Self::Target, E>>) -> io::Result<()> {
         Ok(())
+    }
+
+    fn next_token(&mut self) -> SelectorToken {
+        let token = self.next_token;
+        self.next_token += 1;
+        token
     }
 }
 

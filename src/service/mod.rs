@@ -20,11 +20,16 @@ pub mod select;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 
+/// Endpoint handle.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
+#[repr(transparent)]
+pub struct Handle(SelectorToken);
+
 /// Handles the lifecycle of endpoints (see [`Endpoint`]), which are typically network connections.
 /// It uses `SelectService` pattern for managing asynchronous I/O operations.
 pub struct IOService<S: Selector, E, C> {
     selector: S,
-    pending_endpoints: VecDeque<E>,
+    pending_endpoints: VecDeque<(Handle, E)>,
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
     next_endpoint_create_time_ns: u64,
     context: PhantomData<C>,
@@ -71,8 +76,10 @@ impl<S: Selector, E, C> IOService<S, E, C> {
     }
 
     /// Registers a new [`Endpoint`] with the service.
-    pub fn register(&mut self, endpoint: E) {
-        self.pending_endpoints.push_back(endpoint)
+    pub fn register(&mut self, endpoint: E) -> Handle {
+        let handle = Handle(self.selector.next_token());
+        self.pending_endpoints.push_back((handle, endpoint));
+        handle
     }
 
     fn resolve_dns(connection_info: &ConnectionInfo) -> io::Result<SocketAddr> {
@@ -97,15 +104,15 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
+                if let Some((handle, mut endpoint)) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
                     match endpoint.create_target(addr)? {
                         Some(stream) => {
-                            let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
-                            let token = self.selector.register(&mut io_node)?;
-                            self.io_nodes.insert(token, io_node);
+                            let mut io_node = IONode::new(stream, handle, endpoint, self.auto_disconnect);
+                            self.selector.register(handle.0, &mut io_node)?;
+                            self.io_nodes.insert(handle.0, io_node);
                         }
-                        None => self.pending_endpoints.push_back(endpoint),
+                        None => self.pending_endpoints.push_back((handle, endpoint)),
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -122,12 +129,12 @@ where
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
-                    return if io_node.as_endpoint_mut().can_auto_disconnect() {
+                    return if io_node.as_endpoint_mut().1.can_auto_disconnect() {
                         warn!("endpoint auto disconnected after {:?}", auto_disconnect);
                         self.selector.unregister(io_node).unwrap();
-                        let mut endpoint = io_node.endpoint.take().unwrap();
+                        let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
-                            self.pending_endpoints.push_back(endpoint);
+                            self.pending_endpoints.push_back((handle, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
                         }
@@ -144,13 +151,13 @@ where
 
         // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
-            let (stream, endpoint) = io_node.as_parts_mut();
+            let (stream, (_, endpoint)) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream) {
                 error!("error when polling endpoint [{}]: {}", endpoint.connection_info().host(), err);
                 self.selector.unregister(io_node).unwrap();
-                let mut endpoint = io_node.endpoint.take().unwrap();
+                let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate() {
-                    self.pending_endpoints.push_back(endpoint);
+                    self.pending_endpoints.push_back((handle, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");
                 }
@@ -160,6 +167,23 @@ where
         });
 
         Ok(())
+    }
+
+    /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
+    /// endpoint is currently active `true` will be returned and the provided `action` invoked,
+    /// otherwise this method will return `false` and no `action` will be invoked.
+    pub fn dispatch<F>(&mut self, handle: Handle, mut action: F) -> io::Result<bool>
+    where
+        F: FnMut(&mut E::Target, &mut E) -> std::io::Result<()>,
+    {
+        match self.io_nodes.get_mut(&handle.0) {
+            Some(io_node) => {
+                let (stream, (_, endpoint)) = io_node.as_parts_mut();
+                action(stream, endpoint)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
 
@@ -178,15 +202,15 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some(mut endpoint) = self.pending_endpoints.pop_front() {
+                if let Some((handle, mut endpoint)) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
                     match endpoint.create_target(addr, context)? {
                         Some(stream) => {
-                            let mut io_node = IONode::new(stream, endpoint, self.auto_disconnect);
-                            let token = self.selector.register(&mut io_node)?;
-                            self.io_nodes.insert(token, io_node);
+                            let mut io_node = IONode::new(stream, handle, endpoint, self.auto_disconnect);
+                            self.selector.register(handle.0, &mut io_node)?;
+                            self.io_nodes.insert(handle.0, io_node);
                         }
-                        None => self.pending_endpoints.push_back(endpoint),
+                        None => self.pending_endpoints.push_back((handle, endpoint)),
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -203,12 +227,12 @@ where
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
-                    return if io_node.as_endpoint_mut().can_auto_disconnect(context) {
+                    return if io_node.as_endpoint_mut().1.can_auto_disconnect(context) {
                         warn!("endpoint auto disconnected after {:?}", auto_disconnect);
                         self.selector.unregister(io_node).unwrap();
-                        let mut endpoint = io_node.endpoint.take().unwrap();
+                        let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {
-                            self.pending_endpoints.push_back(endpoint);
+                            self.pending_endpoints.push_back((handle, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
                         }
@@ -225,13 +249,13 @@ where
 
         // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
-            let (stream, endpoint) = io_node.as_parts_mut();
+            let (stream, (_, endpoint)) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream, context) {
                 error!("error when polling endpoint [{}]: {}", endpoint.connection_info().host(), err);
                 self.selector.unregister(io_node).unwrap();
-                let mut endpoint = io_node.endpoint.take().unwrap();
+                let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(context) {
-                    self.pending_endpoints.push_back(endpoint);
+                    self.pending_endpoints.push_back((handle, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");
                 }
@@ -241,5 +265,24 @@ where
         });
 
         Ok(())
+    }
+
+    /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
+    /// endpoint is currently active `true` will be returned and the provided `action` invoked,
+    /// otherwise this method will return `false` and no `action` will be invoked. This method
+    /// requires `Context` to be passed and exposes it to the provided `action`.
+    pub fn dispatch<F>(&mut self, handle: Handle, ctx: &mut C, mut action: F) -> io::Result<bool>
+    where
+        F: FnMut(&mut E::Target, &mut E, &mut C) -> std::io::Result<()>,
+    {
+        match self.io_nodes.get_mut(&handle.0) {
+            Some(io_node) => {
+                let (stream, (_, endpoint)) = io_node.as_parts_mut();
+                endpoint.poll(stream, ctx)?;
+                action(stream, endpoint, ctx)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }

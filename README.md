@@ -37,7 +37,7 @@ The first layer defines `stream` as abstraction over TCP connection, adhering to
 * Allows binding to specific network interface.
 * Facilitates implementation of TCP oriented client protocols such as WebSocket, HTTP, and FIX.
 
-Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.,i
+Streams are designed to be fully generic, avoiding dynamic dispatch, and can be composed in flexible way.
 
 ```rust
 let stream: RecordedStream<TlsStream<TcpStream>> = TcpStream::try_from((host, port))?

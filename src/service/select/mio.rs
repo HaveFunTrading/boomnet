@@ -52,7 +52,7 @@ impl<S: Source + Selectable> Selector for MioSelector<S> {
             let token = ev.token();
             let stream = io_nodes
                 .get_mut(&(token.0 as SelectorToken))
-                .expect("io node not found")
+                .ok_or_else(|| io::Error::other("io node not found"))?
                 .as_stream_mut();
             if ev.is_writable() && stream.connected()? {
                 stream.make_writable()?;

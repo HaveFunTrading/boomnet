@@ -48,4 +48,9 @@ impl<S, E> IONode<S, E> {
         // SAFETY: safe to call as endpoint will never be None
         unsafe { self.endpoint.as_mut().unwrap_unchecked() }
     }
+
+    pub fn into_endpoint(mut self) -> (Handle, E) {
+        // SAFETY: safe to call as endpoint will never be None
+        unsafe { self.endpoint.take().unwrap_unchecked() }
+    }
 }

@@ -75,18 +75,66 @@ impl<S: Selector, E, C> IOService<S, E, C> {
         }
     }
 
-    /// Registers a new [`Endpoint`] with the service.
+    /// Registers a new [`Endpoint`] with the service and return a handle to it.
     pub fn register(&mut self, endpoint: E) -> Handle {
         let handle = Handle(self.selector.next_token());
         self.pending_endpoints.push_back((handle, endpoint));
         handle
     }
 
+    /// Deregister [`Endpoint`] with the service based on a handle.
+    pub fn deregister(&mut self, handle: Handle) -> Option<E> {
+        match self.io_nodes.remove(&handle.0) {
+            Some(io_node) => Some(io_node.into_endpoint().1),
+            None => {
+                let mut index_to_remove = None;
+                for (index, endpoint) in self.pending_endpoints.iter().enumerate() {
+                    if endpoint.0 == handle {
+                        index_to_remove = Some(index);
+                        break;
+                    }
+                }
+                if let Some(index_to_remove) = index_to_remove {
+                    self.pending_endpoints
+                        .remove(index_to_remove)
+                        .map(|(_, endpoint)| endpoint)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    #[inline]
     fn resolve_dns(connection_info: &ConnectionInfo) -> io::Result<SocketAddr> {
         connection_info
             .to_socket_addrs()?
             .next()
             .ok_or_else(|| io::Error::other("unable to resolve dns address"))
+    }
+
+    /// Return iterator over active endpoints, additionally exposing handle and the stream.
+    #[inline]
+    pub fn iter(&mut self) -> impl Iterator<Item = (Handle, &E::Target, &E)>
+    where
+        E: Endpoint<Target = S::Target>,
+    {
+        self.io_nodes.values().map(|io_node| {
+            let (stream, (handle, endpoint)) = io_node.as_parts();
+            (*handle, stream, endpoint)
+        })
+    }
+
+    /// Return mutable iterator over active endpoints, additionally exposing handle and the stream.
+    #[inline]
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut E::Target, &mut E)>
+    where
+        E: Endpoint<Target = S::Target>,
+    {
+        self.io_nodes.values_mut().map(|io_node| {
+            let (stream, (handle, endpoint)) = io_node.as_parts_mut();
+            (*handle, stream, endpoint)
+        })
     }
 }
 
@@ -278,7 +326,6 @@ where
         match self.io_nodes.get_mut(&handle.0) {
             Some(io_node) => {
                 let (stream, (_, endpoint)) = io_node.as_parts_mut();
-                endpoint.poll(stream, ctx)?;
                 action(stream, endpoint, ctx)?;
                 Ok(true)
             }

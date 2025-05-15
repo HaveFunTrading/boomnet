@@ -115,10 +115,7 @@ impl<S: Selector, E, C> IOService<S, E, C> {
 
     /// Return iterator over active endpoints, additionally exposing handle and the stream.
     #[inline]
-    pub fn iter(&mut self) -> impl Iterator<Item = (Handle, &E::Target, &E)>
-    where
-        E: Endpoint<Target = S::Target>,
-    {
+    pub fn iter(&mut self) -> impl Iterator<Item = (Handle, &S::Target, &E)> {
         self.io_nodes.values().map(|io_node| {
             let (stream, (handle, endpoint)) = io_node.as_parts();
             (*handle, stream, endpoint)
@@ -127,10 +124,7 @@ impl<S: Selector, E, C> IOService<S, E, C> {
 
     /// Return mutable iterator over active endpoints, additionally exposing handle and the stream.
     #[inline]
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut E::Target, &mut E)>
-    where
-        E: Endpoint<Target = S::Target>,
-    {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut S::Target, &mut E)> {
         self.io_nodes.values_mut().map(|io_node| {
             let (stream, (handle, endpoint)) = io_node.as_parts_mut();
             (*handle, stream, endpoint)

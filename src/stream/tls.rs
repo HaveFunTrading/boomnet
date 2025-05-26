@@ -85,7 +85,6 @@ mod __rustls {
     use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, RootCertStore, SignatureScheme};
     use std::fmt::Debug;
     use std::io;
-    use std::io::ErrorKind::Other;
     use std::io::{Read, Write};
 
     pub struct TlsStream<S> {

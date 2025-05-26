@@ -63,7 +63,7 @@ pub trait EndpointWithContext<C>: ConnectionInfoProvider {
     }
 }
 
-#[cfg(all(feature = "ws", any(feature = "rustls", feature = "openssl")))]
+#[cfg(all(feature = "ext", feature = "ws", any(feature = "rustls", feature = "openssl")))]
 pub mod ws {
     use std::io;
     use std::io::{Read, Write};

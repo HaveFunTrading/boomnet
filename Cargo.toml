@@ -22,6 +22,7 @@ rustls-webpki = ["rustls", "webpki-roots"]
 openssl = ["dep:openssl"]
 http = ["dep:http", "httparse", "memchr", "itoa"]
 ws = ["rand", "base64", "dep:http", "httparse"]
+ext = []
 
 [dependencies]
 url = "2.5.0"

@@ -20,9 +20,9 @@ jobs:
     strategy:
       matrix:
         features:
-          - "http,ws,mio,openssl"
-          - "http,ws,mio,rustls-webpki"
-          - "http,ws,mio,rustls-native"
+          - "ext,http,ws,mio,openssl"
+          - "ext,http,ws,mio,rustls-webpki"
+          - "ext,http,ws,mio,rustls-native"
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@cargo-hack
@@ -33,9 +33,9 @@ jobs:
     strategy:
       matrix:
         features:
-          - "http,ws,mio,openssl"
-          - "http,ws,mio,rustls-webpki"
-          - "http,ws,mio,rustls-native"
+          - "ext,http,ws,mio,openssl"
+          - "ext,http,ws,mio,rustls-webpki"
+          - "ext,http,ws,mio,rustls-native"
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v3
@@ -75,9 +75,9 @@ jobs:
     strategy:
       matrix:
         features:
-          - "http,ws,mio,openssl"
-          - "http,ws,mio,rustls-webpki"
-          - "http,ws,mio,rustls-native"
+          - "ext,http,ws,mio,openssl"
+          - "ext,http,ws,mio,rustls-webpki"
+          - "ext,http,ws,mio,rustls-native"
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1

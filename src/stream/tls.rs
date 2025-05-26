@@ -188,9 +188,7 @@ mod __rustls {
             let read = if self.tls.wants_read() {
                 let read = self.tls.read_tls(&mut self.inner).no_block()?;
                 if read > 0 {
-                    self.tls
-                        .process_new_packets()
-                        .map_err(|err| io::Error::new(Other, err))?;
+                    self.tls.process_new_packets().map_err(io::Error::other)?;
                 }
                 read
             } else {

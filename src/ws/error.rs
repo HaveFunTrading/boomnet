@@ -1,6 +1,5 @@
 use std::array::TryFromSliceError;
 use std::io;
-use std::io::ErrorKind::Other;
 use thiserror::Error;
 use url::ParseError;
 
@@ -22,6 +21,6 @@ pub enum Error {
 
 impl From<Error> for io::Error {
     fn from(value: Error) -> Self {
-        io::Error::new(Other, value)
+        io::Error::other(value)
     }
 }

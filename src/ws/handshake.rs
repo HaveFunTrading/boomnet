@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::io;
-use std::io::ErrorKind::{Other, WouldBlock};
+use std::io::ErrorKind::WouldBlock;
 use std::io::{Read, Write};
 
 use base64::engine::general_purpose;
@@ -61,11 +61,9 @@ impl Handshaker {
                     // decode http response
                     let mut headers = [httparse::EMPTY_HEADER; 64];
                     let mut response = Response::new(&mut headers);
-                    response
-                        .parse(self.buffer.view())
-                        .map_err(|err| io::Error::new(Other, err))?;
+                    response.parse(self.buffer.view()).map_err(io::Error::other)?;
                     if response.code.unwrap() != StatusCode::SWITCHING_PROTOCOLS.as_u16() {
-                        return Err(io::Error::new(Other, "unable to switch protocols"));
+                        return Err(io::Error::other("unable to switch protocols"));
                     }
                     self.state = Completed;
                 }

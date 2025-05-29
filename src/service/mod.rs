@@ -105,17 +105,9 @@ impl<S: Selector, E, C> IOService<S, E, C> {
         }
     }
 
-    #[inline]
-    fn resolve_dns(connection_info: &ConnectionInfo) -> io::Result<SocketAddr> {
-        connection_info
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| io::Error::other("unable to resolve dns address"))
-    }
-
     /// Return iterator over active endpoints, additionally exposing handle and the stream.
     #[inline]
-    pub fn iter(&mut self) -> impl Iterator<Item = (Handle, &S::Target, &E)> {
+    pub fn iter(&self) -> impl Iterator<Item = (Handle, &S::Target, &E)> {
         self.io_nodes.values().map(|io_node| {
             let (stream, (handle, endpoint)) = io_node.as_parts();
             (*handle, stream, endpoint)
@@ -129,6 +121,20 @@ impl<S: Selector, E, C> IOService<S, E, C> {
             let (stream, (handle, endpoint)) = io_node.as_parts_mut();
             (*handle, stream, endpoint)
         })
+    }
+
+    /// Return iterator over pending endpoints.
+    #[inline]
+    pub fn pending(&self) -> impl Iterator<Item = &(Handle, E)> {
+        self.pending_endpoints.iter()
+    }
+
+    #[inline]
+    fn resolve_dns(connection_info: &ConnectionInfo) -> io::Result<SocketAddr> {
+        connection_info
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::other("unable to resolve dns address"))
     }
 }
 

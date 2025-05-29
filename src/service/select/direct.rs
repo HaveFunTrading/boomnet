@@ -49,7 +49,7 @@ impl<S: Selectable> Selector for DirectSelector<S> {
 }
 
 impl<E: Endpoint> IntoIOService<E> for DirectSelector<E::Target> {
-    fn into_io_service(self) -> IOService<Self, E, ()>
+    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource>
     where
         Self: Selector,
         Self: Sized,
@@ -59,7 +59,7 @@ impl<E: Endpoint> IntoIOService<E> for DirectSelector<E::Target> {
 }
 
 impl<C: Context, E: EndpointWithContext<C>> IntoIOServiceWithContext<E, C> for DirectSelector<E::Target> {
-    fn into_io_service_with_context(self, _context: &mut C) -> IOService<Self, E, C>
+    fn into_io_service_with_context(self, _ctx: &mut C) -> IOService<Self, E, C, SystemTimeClockSource>
     where
         Self: Selector,
         Self: Sized,

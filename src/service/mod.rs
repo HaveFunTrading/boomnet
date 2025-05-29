@@ -27,7 +27,7 @@ pub struct Handle(SelectorToken);
 
 /// Handles the lifecycle of endpoints (see [`Endpoint`]), which are typically network connections.
 /// It uses `SelectService` pattern for managing asynchronous I/O operations.
-pub struct IOService<S: Selector, E, C, TS = SystemTimeClockSource> {
+pub struct IOService<S: Selector, E, C, TS> {
     selector: S,
     pending_endpoints: VecDeque<(Handle, E)>,
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
@@ -40,7 +40,7 @@ pub struct IOService<S: Selector, E, C, TS = SystemTimeClockSource> {
 /// Defines how an instance that implements `SelectService` can be transformed
 /// into an [`IOService`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOService<E> {
-    fn into_io_service(self) -> IOService<Self, E, ()>
+    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource>
     where
         Self: Selector,
         Self: Sized;
@@ -49,7 +49,7 @@ pub trait IntoIOService<E> {
 /// Defines how an instance that implements [`Selector`] can be transformed
 /// into an [`IOService`] with [`Context`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOServiceWithContext<E, C: Context> {
-    fn into_io_service_with_context(self, context: &mut C) -> IOService<Self, E, C>
+    fn into_io_service_with_context(self, context: &mut C) -> IOService<Self, E, C, SystemTimeClockSource>
     where
         Self: Selector,
         Self: Sized;

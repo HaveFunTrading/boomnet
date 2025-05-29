@@ -30,7 +30,7 @@ thiserror = "1.0.50"
 log = "0.4.20"
 socket2 = { version = "0.5.5", features = ["all"] }
 pnet = "0.34.0"
-mio = { version = "0.8.10", features = ["net", "os-poll"], optional = true }
+mio = { version = "1", features = ["net", "os-poll"], optional = true }
 rustls = { version = "0.22.4", optional = true }
 rand = { version = "0.8.5", optional = true }
 base64 = { version = "0.21.5", optional = true }

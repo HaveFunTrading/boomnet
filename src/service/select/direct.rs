@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::service::node::IONode;
 use crate::service::select::{Selectable, Selector, SelectorToken};
+use crate::service::time::SystemTimeClockSource;
 use crate::service::{IOService, IntoIOService, IntoIOServiceWithContext};
 
 pub struct DirectSelector<S> {
@@ -53,7 +54,7 @@ impl<E: Endpoint> IntoIOService<E> for DirectSelector<E::Target> {
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self)
+        IOService::new(self, SystemTimeClockSource)
     }
 }
 
@@ -63,6 +64,6 @@ impl<C: Context, E: EndpointWithContext<C>> IntoIOServiceWithContext<E, C> for D
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self)
+        IOService::new(self, SystemTimeClockSource)
     }
 }

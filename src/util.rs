@@ -2,7 +2,6 @@ use std::io;
 use std::io::ErrorKind::{UnexpectedEof, WouldBlock};
 use std::mem::MaybeUninit;
 use std::ptr::copy_nonoverlapping;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub trait NoBlock {
     type Value;
@@ -33,11 +32,6 @@ impl NoBlock for io::Result<()> {
             Err(err) => Err(err),
         }
     }
-}
-
-#[inline]
-pub fn current_time_nanos() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
 }
 
 #[inline]

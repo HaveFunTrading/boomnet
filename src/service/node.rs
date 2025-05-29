@@ -1,5 +1,5 @@
+use crate::service::time::TimeSource;
 use crate::service::Handle;
-use crate::util::current_time_nanos;
 use std::time::Duration;
 
 pub struct IONode<S, E> {
@@ -9,9 +9,12 @@ pub struct IONode<S, E> {
 }
 
 impl<S, E> IONode<S, E> {
-    pub fn new(stream: S, handle: Handle, endpoint: E, ttl: Option<Duration>) -> IONode<S, E> {
+    pub fn new<TS>(stream: S, handle: Handle, endpoint: E, ttl: Option<Duration>, ts: &TS) -> IONode<S, E>
+    where
+        TS: TimeSource,
+    {
         let disconnect_time_ns = match ttl {
-            Some(ttl) => current_time_nanos() + ttl.as_nanos() as u64,
+            Some(ttl) => ts.current_time_nanos() + ttl.as_nanos() as u64,
             None => u64::MAX,
         };
         Self {

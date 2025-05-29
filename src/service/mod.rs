@@ -6,17 +6,17 @@ use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
-use log::{error, warn};
-
 use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::service::node::IONode;
 use crate::service::select::{Selector, SelectorToken};
+use crate::service::time::{SystemTimeClockSource, TimeSource};
 use crate::stream::ConnectionInfo;
-use crate::util::current_time_nanos;
+use log::{error, warn};
 
 pub mod endpoint;
 mod node;
 pub mod select;
+pub mod time;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 
@@ -27,13 +27,14 @@ pub struct Handle(SelectorToken);
 
 /// Handles the lifecycle of endpoints (see [`Endpoint`]), which are typically network connections.
 /// It uses `SelectService` pattern for managing asynchronous I/O operations.
-pub struct IOService<S: Selector, E, C> {
+pub struct IOService<S: Selector, E, C, TS = SystemTimeClockSource> {
     selector: S,
     pending_endpoints: VecDeque<(Handle, E)>,
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
     next_endpoint_create_time_ns: u64,
     context: PhantomData<C>,
     auto_disconnect: Option<Duration>,
+    time_source: TS,
 }
 
 /// Defines how an instance that implements `SelectService` can be transformed
@@ -54,9 +55,9 @@ pub trait IntoIOServiceWithContext<E, C: Context> {
         Self: Sized;
 }
 
-impl<S: Selector, E, C> IOService<S, E, C> {
+impl<S: Selector, E, C, TS> IOService<S, E, C, TS> {
     /// Creates new instance of [`IOService`].
-    pub fn new(selector: S) -> IOService<S, E, C> {
+    pub fn new(selector: S, time_source: TS) -> IOService<S, E, C, TS> {
         Self {
             selector,
             pending_endpoints: VecDeque::new(),
@@ -64,14 +65,28 @@ impl<S: Selector, E, C> IOService<S, E, C> {
             next_endpoint_create_time_ns: 0,
             context: PhantomData,
             auto_disconnect: None,
+            time_source,
         }
     }
 
     /// Specify TTL for each [`Endpoint`] connection.
-    pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C> {
+    pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C, TS> {
         Self {
             auto_disconnect: Some(auto_disconnect),
             ..self
+        }
+    }
+
+    /// Specify custom [`TimeSource`] instead of the default system time source.
+    pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, E, C, T> {
+        IOService {
+            time_source,
+            pending_endpoints: self.pending_endpoints,
+            context: self.context,
+            auto_disconnect: self.auto_disconnect,
+            io_nodes: self.io_nodes,
+            next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
+            selector: self.selector,
         }
     }
 
@@ -138,10 +153,11 @@ impl<S: Selector, E, C> IOService<S, E, C> {
     }
 }
 
-impl<S, E> IOService<S, E, ()>
+impl<S, E, TS> IOService<S, E, (), TS>
 where
     S: Selector,
     E: Endpoint<Target = S::Target>,
+    TS: TimeSource,
 {
     /// This method polls all registered endpoints for readiness and performs I/O operations based
     /// on the ['Selector'] poll results. It then iterates through all endpoints, either
@@ -150,13 +166,14 @@ where
     pub fn poll(&mut self) -> io::Result<()> {
         // check for pending endpoints (one at a time & throttled)
         if !self.pending_endpoints.is_empty() {
-            let current_time_ns = current_time_nanos();
+            let current_time_ns = self.time_source.current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
                 if let Some((handle, mut endpoint)) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
                     match endpoint.create_target(addr)? {
                         Some(stream) => {
-                            let mut io_node = IONode::new(stream, handle, endpoint, self.auto_disconnect);
+                            let mut io_node =
+                                IONode::new(stream, handle, endpoint, self.auto_disconnect, &self.time_source);
                             self.selector.register(handle.0, &mut io_node)?;
                             self.io_nodes.insert(handle.0, io_node);
                         }
@@ -172,7 +189,7 @@ where
 
         // check for auto disconnect if enabled
         if let Some(auto_disconnect) = self.auto_disconnect {
-            let current_time_ns = current_time_nanos();
+            let current_time_ns = self.time_source.current_time_nanos();
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
@@ -235,11 +252,12 @@ where
     }
 }
 
-impl<S, E, C> IOService<S, E, C>
+impl<S, E, C, TS> IOService<S, E, C, TS>
 where
     S: Selector,
     C: Context,
     E: EndpointWithContext<C, Target = S::Target>,
+    TS: TimeSource,
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
     /// on the `SelectService` poll results. It then iterates through all endpoints, either
@@ -248,13 +266,14 @@ where
     pub fn poll(&mut self, context: &mut C) -> io::Result<()> {
         // check for pending endpoints (one at a time & throttled)
         if !self.pending_endpoints.is_empty() {
-            let current_time_ns = current_time_nanos();
+            let current_time_ns = self.time_source.current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
                 if let Some((handle, mut endpoint)) = self.pending_endpoints.pop_front() {
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
                     match endpoint.create_target(addr, context)? {
                         Some(stream) => {
-                            let mut io_node = IONode::new(stream, handle, endpoint, self.auto_disconnect);
+                            let mut io_node =
+                                IONode::new(stream, handle, endpoint, self.auto_disconnect, &self.time_source);
                             self.selector.register(handle.0, &mut io_node)?;
                             self.io_nodes.insert(handle.0, io_node);
                         }
@@ -270,7 +289,7 @@ where
 
         // check for auto disconnect if enabled
         if let Some(auto_disconnect) = self.auto_disconnect {
-            let current_time_ns = current_time_nanos();
+            let current_time_ns = self.time_source.current_time_nanos();
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {

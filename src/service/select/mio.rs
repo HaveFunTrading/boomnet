@@ -9,6 +9,7 @@ use mio::{Events, Interest, Poll, Token};
 use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::service::node::IONode;
 use crate::service::select::{Selectable, Selector, SelectorToken};
+use crate::service::time::SystemTimeClockSource;
 use crate::service::{IOService, IntoIOService, IntoIOServiceWithContext};
 
 const NO_WAIT: Option<Duration> = Some(Duration::from_millis(0));
@@ -79,7 +80,7 @@ impl<E: Endpoint> IntoIOService<E> for MioSelector<E::Target> {
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self)
+        IOService::new(self, SystemTimeClockSource)
     }
 }
 
@@ -89,6 +90,6 @@ impl<C: Context, E: EndpointWithContext<C>> IntoIOServiceWithContext<E, C> for M
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self)
+        IOService::new(self, SystemTimeClockSource)
     }
 }

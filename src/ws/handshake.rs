@@ -3,15 +3,15 @@ use std::io;
 use std::io::ErrorKind::WouldBlock;
 use std::io::{Read, Write};
 
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use http::StatusCode;
 use httparse::Response;
-use rand::{thread_rng, Rng};
+use rand::{Rng, rng};
 
 use crate::buffer::ReadBuffer;
-use crate::ws::handshake::HandshakeState::{Completed, NotStarted, Pending};
 use crate::ws::Error;
+use crate::ws::handshake::HandshakeState::{Completed, NotStarted, Pending};
 
 #[derive(Debug)]
 pub struct Handshaker {
@@ -106,7 +106,7 @@ impl Handshaker {
 }
 
 fn generate_nonce() -> String {
-    let mut rng = thread_rng();
-    let nonce_bytes: [u8; 16] = rng.gen();
+    let mut rng = rng();
+    let nonce_bytes: [u8; 16] = rng.random();
     general_purpose::STANDARD.encode(nonce_bytes)
 }

@@ -2,7 +2,7 @@ use std::io;
 use std::io::Read;
 
 use crate::util::into_array;
-use crate::ws::{protocol, Error, ReadBuffer, WebsocketFrame};
+use crate::ws::{Error, ReadBuffer, WebsocketFrame, protocol};
 
 #[derive(Debug)]
 pub struct Decoder {

@@ -1,8 +1,8 @@
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
+use boomnet::service::IntoIOService;
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint};
 use boomnet::service::select::direct::DirectSelector;
-use boomnet::service::IntoIOService;
-use boomnet::stream::{tcp, ConnectionInfo, ConnectionInfoProvider};
+use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider, tcp};
 use boomnet::ws::{IntoTlsWebsocket, WebsocketFrame};
 use std::io;
 use std::net::SocketAddr;

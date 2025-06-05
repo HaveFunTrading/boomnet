@@ -70,8 +70,8 @@ pub mod ws {
     use std::net::SocketAddr;
 
     use crate::service::endpoint::{Endpoint, EndpointWithContext};
-    use crate::stream::tls::TlsStream;
     use crate::stream::ConnectionInfoProvider;
+    use crate::stream::tls::TlsStream;
     use crate::ws::Websocket;
 
     pub type TlsWebsocket<S> = Websocket<TlsStream<S>>;

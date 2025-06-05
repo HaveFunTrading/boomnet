@@ -1,6 +1,6 @@
 use crate::common::{FeedContext, TradeEndpoint};
-use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOServiceWithContext;
+use boomnet::service::select::mio::MioSelector;
 
 #[path = "common/mod.rs"]
 mod common;

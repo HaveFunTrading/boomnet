@@ -22,27 +22,83 @@
 //! println!("Body: {}", body);
 //! ```
 
+use crate::stream::ConnectionInfo;
 use crate::stream::buffer::{BufferedStream, IntoBufferedStream};
 use crate::stream::tcp::TcpStream;
 use crate::stream::tls::{IntoTlsStream, TlsConfigExt, TlsStream};
-use crate::stream::ConnectionInfo;
 use crate::util::NoBlock;
 
-use httparse::{Response, EMPTY_HEADER};
+use httparse::{EMPTY_HEADER, Response};
 use memchr::arch::all::rabinkarp::Finder;
 use std::cell::RefCell;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
+use std::ops::{Index, IndexMut};
 use std::rc::Rc;
 
 // re-export
 pub use http::Method;
+use smallvec::SmallVec;
 
 type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
+
+/// Re-usable container to store headers
+#[derive(Default)]
+pub struct Headers<'a> {
+    inner: SmallVec<[(&'a str, &'a str); 32]>,
+}
+
+impl<'a> Index<&'a str> for Headers<'a> {
+    type Output = &'a str;
+
+    // Look up the first* matching header
+    // panics if not found
+    fn index(&self, key: &'a str) -> &Self::Output {
+        for pair in &self.inner {
+            if pair.0 == key {
+                return &pair.1;
+            }
+        }
+        panic!("no header named `{}`", key);
+    }
+}
+
+impl<'a> IndexMut<&'a str> for Headers<'a> {
+    fn index_mut(&mut self, key: &'a str) -> &mut Self::Output {
+        // we push (key, "") and then hand back a &mut to the `&'a str` slot
+        self.inner.push((key, ""));
+        &mut self.inner.last_mut().unwrap().1
+    }
+}
+
+impl<'a> Headers<'a> {
+    /// Append key-value header to the outgoing request.
+    #[inline]
+    pub fn insert(&mut self, key: &'a str, value: &'a str) {
+        self.inner.push((key, value));
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[inline]
+    fn iter(&self) -> impl Iterator<Item = &(&str, &str)> {
+        self.inner.iter()
+    }
+
+    #[inline]
+    fn clear(&mut self) -> &mut Self {
+        self.inner.clear();
+        self
+    }
+}
 
 /// A generic HTTP client that uses a pooled connection strategy.
 pub struct HttpClient<C: ConnectionPool> {
     connection_pool: Rc<RefCell<C>>,
+    headers: Headers<'static>,
 }
 
 impl<C: ConnectionPool> HttpClient<C> {
@@ -50,6 +106,9 @@ impl<C: ConnectionPool> HttpClient<C> {
     pub fn new(connection_pool: C) -> HttpClient<C> {
         Self {
             connection_pool: Rc::new(RefCell::new(connection_pool)),
+            headers: Headers {
+                inner: SmallVec::with_capacity(32),
+            },
         }
     }
 
@@ -69,8 +128,7 @@ impl<C: ConnectionPool> HttpClient<C> {
     ///     "/submit",
     ///     Some(b"data"),
     ///     |hdrs| {
-    ///         hdrs[0] = ("X-Custom", "Value");
-    ///         1
+    ///         hdrs["X-Custom"] = "Value";
     ///     }
     /// ).unwrap();
     /// ```
@@ -82,16 +140,15 @@ impl<C: ConnectionPool> HttpClient<C> {
         builder: F,
     ) -> io::Result<HttpRequest<C>>
     where
-        F: FnOnce(&mut [(&str, &str)]) -> usize,
+        F: FnOnce(&mut Headers),
     {
-        let mut headers = [("", ""); 32];
-        let count = builder(&mut headers);
+        builder(self.headers.clear());
         let conn = self
             .connection_pool
             .borrow_mut()
             .acquire()?
             .ok_or_else(|| io::Error::other("no available connection"))?;
-        let request = HttpRequest::new(method, path, body, &headers[..count], conn, self.connection_pool.clone())?;
+        let request = HttpRequest::new(method, path, body, &self.headers, conn, self.connection_pool.clone())?;
         Ok(request)
     }
 
@@ -117,7 +174,7 @@ impl<C: ConnectionPool> HttpClient<C> {
         path: impl AsRef<str>,
         body: Option<&[u8]>,
     ) -> io::Result<HttpRequest<C>> {
-        self.new_request_with_headers(method, path, body, |_| 0)
+        self.new_request_with_headers(method, path, body, |_| {})
     }
 }
 
@@ -226,7 +283,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
         method: Method,
         path: impl AsRef<str>,
         body: Option<&[u8]>,
-        headers: &[(&str, &str)],
+        headers: &Headers,
         mut conn: Connection<C::Stream>,
         pool: Rc<RefCell<C>>,
     ) -> io::Result<HttpRequest<C>> {
@@ -237,7 +294,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
         conn.write_all(pool.borrow().host().as_bytes())?;
         if !headers.is_empty() {
             conn.write_all(b"\r\n")?;
-            for header in headers {
+            for header in headers.iter() {
                 conn.write_all(header.0.as_bytes())?;
                 conn.write_all(b": ")?;
                 conn.write_all(header.1.as_bytes())?;
@@ -296,8 +353,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
     ///     "/submit",
     ///     Some(b"data"),
     ///     |hdrs| {
-    ///         hdrs[0] = ("X-Custom", "Value");
-    ///         1
+    ///         hdrs["X-Custom"] = "Value";
     ///     }
     /// ).unwrap();
     ///
@@ -445,5 +501,30 @@ impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
             disconnected: false,
             header_finder: Finder::new(b"\r\n\r\n"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_insert_headers() {
+        let mut headers = Headers::default();
+
+        headers["hello"] = "world";
+        headers["foo"] = "bar";
+
+        let mut iter = headers.iter();
+
+        let (key, value) = iter.next().unwrap();
+        assert_eq!((&"hello", &"world"), (key, value));
+        assert_eq!("world", headers["hello"]);
+
+        let (key, value) = iter.next().unwrap();
+        assert_eq!((&"foo", &"bar"), (key, value));
+        assert_eq!("bar", headers["foo"]);
+
+        assert!(iter.next().is_none());
     }
 }

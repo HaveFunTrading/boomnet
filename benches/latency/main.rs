@@ -1,12 +1,12 @@
-use ::tungstenite::{connect, Message};
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use ::tungstenite::{Message, connect};
+use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 use tungstenite::Utf8Bytes;
 
 use crate::endpoint::{TestContext, TestEndpoint};
 use ::boomnet::stream::buffer::IntoBufferedStream;
 use ::boomnet::ws::IntoWebsocket;
-use boomnet::service::select::direct::DirectSelector;
 use boomnet::service::IntoIOServiceWithContext;
+use boomnet::service::select::direct::DirectSelector;
 use boomnet::stream::ConnectionInfo;
 
 mod endpoint;
@@ -66,12 +66,14 @@ fn boomnet_rtt_benchmark_io_service(c: &mut Criterion) {
     io_service.register(TestEndpoint::new(9003, MSG));
 
     group.bench_function("boomnet_rtt_io_service", |b| {
-        b.iter(|| loop {
-            io_service.poll(&mut ctx).unwrap();
-            if ctx.processed == 100 {
-                ctx.wants_write = true;
-                ctx.processed = 0;
-                break;
+        b.iter(|| {
+            loop {
+                io_service.poll(&mut ctx).unwrap();
+                if ctx.processed == 100 {
+                    ctx.wants_write = true;
+                    ctx.processed = 0;
+                    break;
+                }
             }
         })
     });

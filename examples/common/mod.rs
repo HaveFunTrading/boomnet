@@ -1,6 +1,6 @@
 use ansi_term::Color::{Green, Purple, Red, Yellow};
-use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
+use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tcp::TcpStream;
 use boomnet::stream::tls::{IntoTlsStream, TlsConfigExt};

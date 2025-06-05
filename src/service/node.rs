@@ -1,5 +1,5 @@
-use crate::service::time::TimeSource;
 use crate::service::Handle;
+use crate::service::time::TimeSource;
 use std::time::Duration;
 
 pub struct IONode<S, E> {

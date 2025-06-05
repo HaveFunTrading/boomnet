@@ -1,6 +1,6 @@
+use boomnet::stream::ConnectionInfo;
 use boomnet::stream::record::IntoRecordedStream;
 use boomnet::stream::tls::IntoTlsStream;
-use boomnet::stream::ConnectionInfo;
 use boomnet::ws::{IntoWebsocket, WebsocketFrame};
 use idle::IdleStrategy;
 use std::time::Duration;

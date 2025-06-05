@@ -127,9 +127,11 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     /// }
     #[inline]
     pub unsafe fn consume_next_unchecked(&mut self, len: usize) -> &'static [u8] {
-        let consumed_view = &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len);
-        self.head += len;
-        consumed_view
+        unsafe {
+            let consumed_view = &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len);
+            self.head += len;
+            consumed_view
+        }
     }
 
     #[inline]
@@ -153,9 +155,11 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     /// }
     #[inline]
     pub unsafe fn consume_next_byte_unchecked(&mut self) -> u8 {
-        let byte = *self.inner.as_ptr().add(self.head);
-        self.head += 1;
-        byte
+        unsafe {
+            let byte = *self.inner.as_ptr().add(self.head);
+            self.head += 1;
+            byte
+        }
     }
 
     #[inline]

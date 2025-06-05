@@ -4,10 +4,10 @@ use http::Method;
 fn main() -> anyhow::Result<()> {
     let mut client = SingleTlsConnectionPool::new(("fapi.binance.com", 443)).into_http_client();
 
-    let request = client.new_request_with_headers(Method::GET, "/fapi/v1/depth?symbol=BTCUSDT", None, |headers| {
-        headers[0] = ("FOO", "bar");
-        1
-    })?;
+    let request =
+        client.new_request_with_headers(Method::GET, "/fapi/v1/depth?symbol=BTCUSDT", None, move |headers| {
+            headers["FOO"] = "bar";
+        })?;
 
     // execute in blocking mode (will consume request)
     let (status_code, headers, body) = request.block()?;

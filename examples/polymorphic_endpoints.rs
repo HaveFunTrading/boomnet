@@ -5,8 +5,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
 use boomnet::service::endpoint::Context;
+use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::{IntoIOService, IntoIOServiceWithContext};
 use boomnet::stream::mio::{IntoMioStream, MioStream};

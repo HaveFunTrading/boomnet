@@ -36,7 +36,9 @@ impl NoBlock for io::Result<()> {
 
 #[inline]
 pub const unsafe fn into_array<const N: usize>(slice: &[u8]) -> [u8; N] {
-    let array = MaybeUninit::<[u8; N]>::uninit();
-    copy_nonoverlapping(slice.as_ptr(), array.as_ptr() as *mut u8, slice.len());
-    array.assume_init()
+    unsafe {
+        let array = MaybeUninit::<[u8; N]>::uninit();
+        copy_nonoverlapping(slice.as_ptr(), array.as_ptr() as *mut u8, slice.len());
+        array.assume_init()
+    }
 }

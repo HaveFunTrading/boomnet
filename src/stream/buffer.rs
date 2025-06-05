@@ -3,7 +3,7 @@
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 #[cfg(feature = "mio")]
-use mio::{event::Source, Interest, Registry, Token};
+use mio::{Interest, Registry, Token, event::Source};
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::mem::MaybeUninit;

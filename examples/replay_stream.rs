@@ -14,10 +14,12 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    run(|| loop {
-        for frame in ws.read_batch()? {
-            if let WebsocketFrame::Text(fin, body) = frame? {
-                println!("({fin}) {}", String::from_utf8_lossy(body));
+    run(|| {
+        loop {
+            for frame in ws.read_batch()? {
+                if let WebsocketFrame::Text(fin, body) = frame? {
+                    println!("({fin}) {}", String::from_utf8_lossy(body));
+                }
             }
         }
     })?;

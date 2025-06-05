@@ -7,7 +7,7 @@ pub use __openssl::TlsStream;
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
 pub use __rustls::TlsStream;
 #[cfg(feature = "mio")]
-use mio::{event::Source, Interest, Registry, Token};
+use mio::{Interest, Registry, Token, event::Source};
 #[cfg(feature = "openssl")]
 use openssl::ssl::{SslConnectorBuilder, SslVerifyMode};
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
@@ -74,14 +74,14 @@ mod __rustls {
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     use crate::util::NoBlock;
     #[cfg(feature = "mio")]
-    use mio::{event::Source, Interest, Registry, Token};
-    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use mio::{Interest, Registry, Token, event::Source};
     use rustls::SignatureScheme::{
-        ECDSA_SHA1_Legacy, ECDSA_NISTP256_SHA256, ECDSA_NISTP384_SHA384, ECDSA_NISTP521_SHA512, ED25519, ED448,
+        ECDSA_NISTP256_SHA256, ECDSA_NISTP384_SHA384, ECDSA_NISTP521_SHA512, ECDSA_SHA1_Legacy, ED448, ED25519,
         RSA_PKCS1_SHA1, RSA_PKCS1_SHA256, RSA_PKCS1_SHA384, RSA_PKCS1_SHA512, RSA_PSS_SHA256, RSA_PSS_SHA384,
         RSA_PSS_SHA512,
     };
+    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
     use rustls::{ClientConfig, ClientConnection, DigitallySignedStruct, Error, RootCertStore, SignatureScheme};
     use std::fmt::Debug;
     use std::io;
@@ -263,7 +263,7 @@ mod __openssl {
     use crate::stream::tls::TlsConfig;
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
     #[cfg(feature = "mio")]
-    use mio::{event::Source, Interest, Registry, Token};
+    use mio::{Interest, Registry, Token, event::Source};
     use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslConnector, SslMethod, SslRef, SslStream};
     use openssl::x509::X509VerifyResult;
     use std::fmt::Debug;
@@ -491,7 +491,6 @@ where
     fn into_tls_stream_with_config<F>(self, builder: F) -> io::Result<TlsStream<Self>>
     where
         Self: Sized,
-
         F: FnOnce(&mut TlsConfig),
     {
         let server_name = self.connection_info().clone().host;

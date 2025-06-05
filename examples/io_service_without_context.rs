@@ -1,6 +1,6 @@
 use crate::common::TradeEndpoint;
-use boomnet::service::select::mio::MioSelector;
 use boomnet::service::IntoIOService;
+use boomnet::service::select::mio::MioSelector;
 
 #[path = "common/mod.rs"]
 mod common;

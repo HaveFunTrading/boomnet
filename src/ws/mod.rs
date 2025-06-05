@@ -60,11 +60,11 @@ use crate::service::select::Selectable;
 use crate::stream::tls::{IntoTlsStream, TlsReadyStream, TlsStream};
 use crate::stream::{BindAndConnect, ConnectionInfoProvider};
 use crate::util::NoBlock;
+use crate::ws::Error::{Closed, ReceivedCloseFrame};
 use crate::ws::decoder::Decoder;
 use crate::ws::handshake::Handshaker;
-use crate::ws::Error::{Closed, ReceivedCloseFrame};
 #[cfg(feature = "mio")]
-use mio::{event::Source, Interest, Registry, Token};
+use mio::{Interest, Registry, Token, event::Source};
 use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind::WouldBlock;

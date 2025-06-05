@@ -62,9 +62,6 @@ core_affinity = "0.8.1"
 uninit_assumed_init = "allow"
 mem_replace_with_uninit = "allow"
 
-#[lints.rust]
-#dead_code = "warn"
-
 [profile.release]
 debug = true
 lto = true

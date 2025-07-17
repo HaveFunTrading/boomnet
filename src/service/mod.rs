@@ -195,7 +195,7 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect() {
-                        warn!("endpoint auto disconnected after {:?}", auto_disconnect);
+                        warn!("endpoint auto disconnected after {auto_disconnect:?}");
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
@@ -295,7 +295,7 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect(context) {
-                        warn!("endpoint auto disconnected after {:?}", auto_disconnect);
+                        warn!("endpoint auto disconnected after {auto_disconnect:?}");
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {

@@ -452,7 +452,7 @@ where
         let tls_ready_stream = match url.scheme() {
             "ws" => Ok(TlsReadyStream::Plain(stream)),
             "wss" => Ok(TlsReadyStream::Tls(TlsStream::wrap(stream, url.host_str().unwrap()).unwrap())),
-            scheme => Err(io::Error::other(format!("unrecognised url scheme: {}", scheme))),
+            scheme => Err(io::Error::other(format!("unrecognised url scheme: {scheme}"))),
         }?;
 
         Ok(Websocket::new(tls_ready_stream, url.host_str().unwrap(), &endpoint))

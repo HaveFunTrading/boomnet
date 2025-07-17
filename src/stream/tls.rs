@@ -436,7 +436,7 @@ mod __openssl {
             .open(path)
             .expect("Failed to open SSL key log file");
 
-        writeln!(file, "{}", line).expect("Failed to write to SSL key log file");
+        writeln!(file, "{line}").expect("Failed to write to SSL key log file");
     }
 }
 

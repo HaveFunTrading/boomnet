@@ -59,7 +59,7 @@ impl<'a> Index<&'a str> for Headers<'a> {
                 return &pair.1;
             }
         }
-        panic!("no header named `{}`", key);
+        panic!("no header named `{key}`");
     }
 }
 

@@ -13,7 +13,7 @@ pub fn parse_url(url: &str) -> Result<(ConnectionInfo, String, bool), Error> {
     let secure = match url.scheme() {
         "ws" => false,
         "wss" => true,
-        scheme => Err(io::Error::other(format!("unrecognised url scheme: {}", scheme)))?,
+        scheme => Err(io::Error::other(format!("unrecognised url scheme: {scheme}")))?,
     };
     Ok((connection_info, endpoint, secure))
 }

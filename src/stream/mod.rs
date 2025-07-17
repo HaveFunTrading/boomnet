@@ -1,7 +1,8 @@
 //! Various stream implementations on top of which protocol can be applied.
 
-use crate::inet::{IntoNetworkInterface, ToSocketAddr};
+use crate::inet::{FromSocketAddr, IntoNetworkInterface, ToSocketAddr};
 use crate::service::select::Selectable;
+use pnet::datalink::NetworkInterface;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::fmt::{Display, Formatter};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -200,6 +201,7 @@ pub struct ConnectionInfo {
     host: String,
     port: u16,
     net_iface: Option<SocketAddr>,
+    net_iface_name: Option<String>,
     cpu: Option<usize>,
     socket_config: Option<fn(&Socket) -> io::Result<()>>,
 }
@@ -231,6 +233,7 @@ impl TryFrom<Url> for ConnectionInfo {
                 .port_or_known_default()
                 .ok_or_else(|| io::Error::other("port not present"))?,
             net_iface: None,
+            net_iface_name: None,
             cpu: None,
             socket_config: None,
         })
@@ -256,30 +259,38 @@ impl From<(&str, u16)> for ConnectionInfo {
 }
 
 impl ConnectionInfo {
+    /// Create a new connection info from `host` and `port`.
     pub fn new(host: impl AsRef<str>, port: u16) -> Self {
         Self {
             host: host.as_ref().to_string(),
             port,
             net_iface: None,
+            net_iface_name: None,
             cpu: None,
             socket_config: None,
         }
     }
 
+    /// Add network interface using ip address. Will panic if invalid address provided.
     pub fn with_net_iface(self, net_iface: SocketAddr) -> Self {
+        let nif = NetworkInterface::from_socket_addr(net_iface).expect("invalid network interface");
         Self {
             net_iface: Some(net_iface),
+            net_iface_name: Some(nif.name),
             ..self
         }
     }
 
+    /// Add network interface using the interface name. Will panic if no interface with that
+    /// name can be found.
     pub fn with_net_iface_from_name(self, net_iface_name: &str) -> Self {
         let net_iface = net_iface_name
             .into_network_interface()
             .and_then(|iface| iface.to_socket_addr())
-            .unwrap_or_else(|| panic!("invalid network interface: {}", net_iface_name));
+            .unwrap_or_else(|| panic!("invalid network interface: {net_iface_name}"));
         Self {
             net_iface: Some(net_iface),
+            net_iface_name: Some(net_iface_name.to_owned()),
             ..self
         }
     }
@@ -288,6 +299,7 @@ impl ConnectionInfo {
         Self { cpu: Some(cpu), ..self }
     }
 
+    /// Add custom user action used to configure socket.
     pub fn with_socket_config(self, socket_config: fn(&Socket) -> io::Result<()>) -> Self {
         Self {
             socket_config: Some(socket_config),
@@ -295,14 +307,27 @@ impl ConnectionInfo {
         }
     }
 
+    /// Get host.
     pub fn host(&self) -> &str {
         &self.host
     }
 
+    /// Get port.
     pub fn port(&self) -> u16 {
         self.port
     }
 
+    /// Get network interface address.
+    pub fn net_iface(&self) -> Option<SocketAddr> {
+        self.net_iface
+    }
+
+    /// Get network interface name.
+    pub fn net_iface_name_as_str(&self) -> Option<&str> {
+        self.net_iface_name.as_deref()
+    }
+
+    /// Convert to tcp stream. This will perform DNS address resolution.
     pub fn into_tcp_stream(self) -> io::Result<tcp::TcpStream> {
         let stream =
             TcpStream::bind_and_connect_with_socket_config(&self, self.net_iface, self.cpu, |socket| {
@@ -314,6 +339,7 @@ impl ConnectionInfo {
         Ok(tcp::TcpStream::new(stream, self))
     }
 
+    /// Convert to tcp stream using already resolved address.
     pub fn into_tcp_stream_with_addr(self, addr: SocketAddr) -> io::Result<tcp::TcpStream> {
         let stream =
             TcpStream::bind_and_connect_with_socket_config(addr, self.net_iface, self.cpu, |socket| {

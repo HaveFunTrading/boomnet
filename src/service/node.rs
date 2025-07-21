@@ -5,6 +5,7 @@ use std::time::Duration;
 pub struct IONode<S, E> {
     pub stream: S,
     pub endpoint: Option<(Handle, E)>,
+    pub ttl: Duration,
     pub disconnect_time_ns: u64,
 }
 
@@ -13,14 +14,12 @@ impl<S, E> IONode<S, E> {
     where
         TS: TimeSource,
     {
-        let disconnect_time_ns = match ttl {
-            Some(ttl) => ts.current_time_nanos() + ttl.as_nanos() as u64,
-            None => u64::MAX,
-        };
+        let ttl = ttl.map_or(u64::MAX, |ttl| ttl.as_nanos() as u64);
         Self {
             stream,
             endpoint: Some((handle, endpoint)),
-            disconnect_time_ns,
+            ttl: Duration::from_nanos(ttl),
+            disconnect_time_ns: ts.current_time_nanos().saturating_add(ttl),
         }
     }
 

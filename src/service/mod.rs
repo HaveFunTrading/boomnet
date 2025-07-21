@@ -33,7 +33,7 @@ pub struct IOService<S: Selector, E, C, TS> {
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
     next_endpoint_create_time_ns: u64,
     context: PhantomData<C>,
-    auto_disconnect: Option<Duration>,
+    auto_disconnect: Option<Box<dyn Fn() -> Duration>>,
     time_source: TS,
 }
 
@@ -71,8 +71,16 @@ impl<S: Selector, E, C, TS> IOService<S, E, C, TS> {
 
     /// Specify TTL for each [`Endpoint`] connection.
     pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C, TS> {
+        self.with_auto_disconnect_supplier(move || auto_disconnect)
+    }
+
+    /// Specify TTL supplier for each [`Endpoint`] connection.
+    pub fn with_auto_disconnect_supplier<F>(self, f: F) -> IOService<S, E, C, TS>
+    where
+        F: Fn() -> Duration + 'static,
+    {
         Self {
-            auto_disconnect: Some(auto_disconnect),
+            auto_disconnect: Some(Box::new(f)),
             ..self
         }
     }
@@ -172,8 +180,8 @@ where
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
                     match endpoint.create_target(addr)? {
                         Some(stream) => {
-                            let mut io_node =
-                                IONode::new(stream, handle, endpoint, self.auto_disconnect, &self.time_source);
+                            let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
+                            let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source);
                             self.selector.register(handle.0, &mut io_node)?;
                             self.io_nodes.insert(handle.0, io_node);
                         }
@@ -188,14 +196,14 @@ where
         self.selector.poll(&mut self.io_nodes)?;
 
         // check for auto disconnect if enabled
-        if let Some(auto_disconnect) = self.auto_disconnect {
+        if let Some(auto_disconnect) = self.auto_disconnect.as_ref() {
             let current_time_ns = self.time_source.current_time_nanos();
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect() {
-                        warn!("endpoint auto disconnected after {auto_disconnect:?}");
+                        warn!("endpoint auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
@@ -206,7 +214,9 @@ where
                         false
                     } else {
                         // extend the endpoint TTL
-                        io_node.disconnect_time_ns += auto_disconnect.as_nanos() as u64;
+                        let extend = auto_disconnect().as_nanos() as u64;
+                        io_node.disconnect_time_ns = io_node.disconnect_time_ns.saturating_add(extend);
+                        // io_node.disconnect_time_ns += auto_disconnect.as_nanos() as u64;
                         true
                     };
                 }
@@ -272,8 +282,8 @@ where
                     let addr = Self::resolve_dns(endpoint.connection_info())?;
                     match endpoint.create_target(addr, context)? {
                         Some(stream) => {
-                            let mut io_node =
-                                IONode::new(stream, handle, endpoint, self.auto_disconnect, &self.time_source);
+                            let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
+                            let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source);
                             self.selector.register(handle.0, &mut io_node)?;
                             self.io_nodes.insert(handle.0, io_node);
                         }
@@ -288,14 +298,14 @@ where
         self.selector.poll(&mut self.io_nodes)?;
 
         // check for auto disconnect if enabled
-        if let Some(auto_disconnect) = self.auto_disconnect {
+        if let Some(auto_disconnect) = self.auto_disconnect.as_ref() {
             let current_time_ns = self.time_source.current_time_nanos();
             self.io_nodes.retain(|_token, io_node| {
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect(context) {
-                        warn!("endpoint auto disconnected after {auto_disconnect:?}");
+                        warn!("endpoint auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {
@@ -306,7 +316,8 @@ where
                         false
                     } else {
                         // extend the endpoint TTL
-                        io_node.disconnect_time_ns += auto_disconnect.as_nanos() as u64;
+                        let extend = auto_disconnect().as_nanos() as u64;
+                        io_node.disconnect_time_ns = io_node.disconnect_time_ns.saturating_add(extend);
                         true
                     };
                 }

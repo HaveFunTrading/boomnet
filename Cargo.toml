@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.54"
+version = "0.0.55"
 edition = "2024"
 license = "MIT"
 description = "Framework for building low latency clients on top of TCP."

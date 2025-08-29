@@ -216,7 +216,7 @@ where
                         match endpoint.create_target(addr)? {
                             Some(stream) => {
                                 let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source);
+                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source, addr);
                                 self.selector.register(handle.0, &mut io_node)?;
                                 self.io_nodes.insert(handle.0, io_node);
                             }
@@ -246,7 +246,9 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect() {
-                        warn!("endpoint auto disconnected after {:?}", io_node.ttl);
+                        let host = io_node.as_endpoint().1.connection_info().host();
+                        let addr = io_node.addr;
+                        warn!("endpoint {addr} [{host}] auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
@@ -331,7 +333,7 @@ where
                         match endpoint.create_target(addr, context)? {
                             Some(stream) => {
                                 let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source);
+                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source, addr);
                                 self.selector.register(handle.0, &mut io_node)?;
                                 self.io_nodes.insert(handle.0, io_node);
                             }
@@ -361,7 +363,9 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect(context) {
-                        warn!("endpoint auto disconnected after {:?}", io_node.ttl);
+                        let host = io_node.as_endpoint().1.connection_info().host();
+                        let addr = io_node.addr;
+                        warn!("endpoint {addr} [{host}] auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {

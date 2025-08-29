@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut io_service = MioSelector::new()?
         .into_io_service_with_context(&mut context)
-        .with_dns_resolver(AsyncDnsResolver::new());
+        .with_dns_resolver(AsyncDnsResolver::new()?);
 
     let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
     let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "ethusdt");

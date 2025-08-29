@@ -1,11 +1,11 @@
 use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::fmt::Display;
-use std::io;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::TryRecvError;
 use std::thread::JoinHandle;
+use std::{io, thread};
 
 const MAX_ADDRS_PER_QUERY: usize = 32;
 const MAX_HOSTNAME_LEN_BEFORE_SPILL: usize = 64;
@@ -59,21 +59,15 @@ pub struct AsyncDnsResolver {
 }
 
 impl AsyncDnsResolver {
-    pub fn new() -> Self {
+    pub fn new() -> io::Result<Self> {
         let (tx, rx) = std::sync::mpsc::sync_channel(256);
-        let handle = DnsWorker::start_on_thread(rx);
-        AsyncDnsResolver {
+        let handle = DnsWorker::start_on_thread(rx)?;
+        Ok(AsyncDnsResolver {
             requests: tx,
             _handle: handle,
-        }
+        })
     }
     // new_with_config (... affinity)
-}
-
-impl Default for AsyncDnsResolver {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl DnsResolver for AsyncDnsResolver {
@@ -124,8 +118,9 @@ struct DnsWorker {
 }
 
 impl DnsWorker {
-    fn start_on_thread(requests: std::sync::mpsc::Receiver<DnsRequest>) -> JoinHandle<()> {
-        std::thread::spawn(move || {
+    fn start_on_thread(requests: std::sync::mpsc::Receiver<DnsRequest>) -> io::Result<JoinHandle<()>> {
+        let builder = thread::Builder::new().name("dns-worker".to_owned());
+        builder.spawn(move || {
             let mut worker = Self { requests };
             loop {
                 worker.poll().unwrap();
@@ -185,7 +180,7 @@ mod tests {
     #[test]
     #[ignore]
     fn should_resolve_async() {
-        let mut resolver = AsyncDnsResolver::new();
+        let mut resolver = AsyncDnsResolver::new().unwrap();
         let mut query = resolver.new_query("fstream.binance.com", 443).unwrap();
         loop {
             match query.poll() {

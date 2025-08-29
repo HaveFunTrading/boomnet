@@ -1,5 +1,6 @@
 use crate::service::Handle;
 use crate::service::time::TimeSource;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 pub struct IONode<S, E> {
@@ -7,10 +8,18 @@ pub struct IONode<S, E> {
     pub endpoint: Option<(Handle, E)>,
     pub ttl: Duration,
     pub disconnect_time_ns: u64,
+    pub addr: SocketAddr,
 }
 
 impl<S, E> IONode<S, E> {
-    pub fn new<TS>(stream: S, handle: Handle, endpoint: E, ttl: Option<Duration>, ts: &TS) -> IONode<S, E>
+    pub fn new<TS>(
+        stream: S,
+        handle: Handle,
+        endpoint: E,
+        ttl: Option<Duration>,
+        ts: &TS,
+        addr: SocketAddr,
+    ) -> IONode<S, E>
     where
         TS: TimeSource,
     {
@@ -20,6 +29,7 @@ impl<S, E> IONode<S, E> {
             endpoint: Some((handle, endpoint)),
             ttl: Duration::from_nanos(ttl),
             disconnect_time_ns: ts.current_time_nanos().saturating_add(ttl),
+            addr,
         }
     }
 

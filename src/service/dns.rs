@@ -8,6 +8,7 @@ use std::sync::mpsc::TryRecvError;
 use std::thread::JoinHandle;
 
 const MAX_ADDRS_PER_QUERY: usize = 32;
+const MAX_HOSTNAME_LEN_BEFORE_SPILL: usize = 64;
 
 pub trait DnsResolver {
     type Query: DnsQuery;
@@ -34,7 +35,7 @@ impl DnsResolver for BlockingDnsResolver {
 }
 
 pub struct BlockingDnsQuery {
-    host: SmallString<[u8; 32]>,
+    host: SmallString<[u8; MAX_HOSTNAME_LEN_BEFORE_SPILL]>,
     port: u16,
     addrs: Option<SmallVec<[SocketAddr; MAX_ADDRS_PER_QUERY]>>,
 }
@@ -153,7 +154,7 @@ impl DnsWorker {
 
 struct DnsRequest {
     response_channel: std::sync::mpsc::SyncSender<DnsResponse>,
-    host: SmallString<[u8; 32]>,
+    host: SmallString<[u8; MAX_HOSTNAME_LEN_BEFORE_SPILL]>,
     port: u16,
 }
 

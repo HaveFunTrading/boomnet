@@ -12,7 +12,7 @@ fn main() -> anyhow::Result<()> {
 
     let endpoint_xrp = TradeEndpoint::new_with_subscribe(2, "wss://stream3.binance.com:443/ws", None, "xrpusdt", false);
 
-    let handle = io_service.register(endpoint_xrp);
+    let handle = io_service.register(endpoint_xrp)?;
 
     // we delay the subscription until the endpoint is ready
     loop {

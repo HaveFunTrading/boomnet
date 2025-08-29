@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
 
     let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", "btcusdt", &ctx);
 
-    io_service.register(endpoint_btc);
+    io_service.register(endpoint_btc)?;
 
     loop {
         io_service.poll(&mut ctx)?;

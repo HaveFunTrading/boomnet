@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
 
     let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
 
-    io_service.register(endpoint_btc);
+    io_service.register(endpoint_btc)?;
 
     loop {
         io_service.poll()?;

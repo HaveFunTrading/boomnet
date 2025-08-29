@@ -15,7 +15,7 @@ use crate::service::time::{SystemTimeClockSource, TimeSource};
 use crate::stream::ConnectionInfoProvider;
 use log::{error, warn};
 
-mod dns;
+pub mod dns;
 pub mod endpoint;
 mod node;
 pub mod select;
@@ -122,15 +122,15 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     }
 
     /// Registers a new [`Endpoint`] with the service and return a handle to it.
-    pub fn register(&mut self, endpoint: E) -> Handle
+    pub fn register(&mut self, endpoint: E) -> io::Result<Handle>
     where
         E: ConnectionInfoProvider,
     {
         let handle = Handle(self.selector.next_token());
         let info = endpoint.connection_info();
-        let query = self.dns_resolver.new_query(info.host(), info.port());
+        let query = self.dns_resolver.new_query(info.host(), info.port())?;
         self.pending_endpoints.push_back((handle, query, endpoint));
-        handle
+        Ok(handle)
     }
 
     /// Deregister [`Endpoint`] with the service based on a handle.
@@ -223,10 +223,12 @@ where
                             None => {
                                 // request new dns query
                                 let info = endpoint.connection_info();
-                                let query = self.dns_resolver.new_query(info.host(), info.port());
+                                let query = self.dns_resolver.new_query(info.host(), info.port())?;
                                 self.pending_endpoints.push_back((handle, query, endpoint))
                             }
                         }
+                    } else {
+                        self.pending_endpoints.push_back((handle, query, endpoint))
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -249,7 +251,7 @@ where
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
                             let info = endpoint.connection_info();
-                            let query = self.dns_resolver.new_query(info.host(), info.port());
+                            let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                             self.pending_endpoints.push_back((handle, query, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
@@ -276,7 +278,7 @@ where
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate() {
                     let info = endpoint.connection_info();
-                    let query = self.dns_resolver.new_query(info.host(), info.port());
+                    let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                     self.pending_endpoints.push_back((handle, query, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");
@@ -336,10 +338,12 @@ where
                             None => {
                                 // request new dns query
                                 let info = endpoint.connection_info();
-                                let query = self.dns_resolver.new_query(info.host(), info.port());
+                                let query = self.dns_resolver.new_query(info.host(), info.port())?;
                                 self.pending_endpoints.push_back((handle, query, endpoint))
                             }
                         }
+                    } else {
+                        self.pending_endpoints.push_back((handle, query, endpoint))
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -362,7 +366,7 @@ where
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {
                             let info = endpoint.connection_info();
-                            let query = self.dns_resolver.new_query(info.host(), info.port());
+                            let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                             self.pending_endpoints.push_back((handle, query, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
@@ -388,7 +392,7 @@ where
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(context) {
                     let info = endpoint.connection_info();
-                    let query = self.dns_resolver.new_query(info.host(), info.port());
+                    let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                     self.pending_endpoints.push_back((handle, query, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");

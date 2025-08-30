@@ -4,7 +4,7 @@
 //! Blocking resolver.
 //!```no_run
 //! use std::io;
-//! use your_crate::{DnsResolver, BlockingDnsResolver};
+//! use boomnet::service::dns::{DnsQuery, DnsResolver, BlockingDnsResolver};
 //!
 //! fn main() -> io::Result<()> {
 //!     let mut r = BlockingDnsResolver;
@@ -18,7 +18,7 @@
 //! Asynchronous resolver. Will perform resolution on a background thread.
 //!```no_run
 //! use std::io::{self, ErrorKind};
-//! use your_crate::{DnsResolver, AsyncDnsResolver};
+//! use boomnet::service::dns::{DnsQuery, DnsResolver, AsyncDnsResolver};
 //!
 //! fn main() -> io::Result<()> {
 //!     let mut r = AsyncDnsResolver::new()?;

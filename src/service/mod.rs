@@ -183,8 +183,9 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     #[inline]
     fn resolve_dns(query: &mut impl DnsQuery) -> io::Result<Option<SocketAddr>> {
         match query.poll() {
-            Ok(mut addrs) => {
+            Ok(addrs) => {
                 let addr = addrs
+                    .into_iter()
                     .next()
                     .ok_or_else(|| io::Error::other("unable to resolve dns address"))?;
                 Ok(Some(addr))

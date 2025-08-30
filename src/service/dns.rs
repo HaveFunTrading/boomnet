@@ -19,7 +19,7 @@ pub trait DnsResolver {
 }
 
 pub trait DnsQuery {
-    fn poll(&mut self) -> io::Result<impl Iterator<Item = SocketAddr>>;
+    fn poll(&mut self) -> io::Result<impl IntoIterator<Item = SocketAddr>>;
 }
 
 pub struct BlockingDnsResolver;
@@ -43,7 +43,7 @@ pub struct BlockingDnsQuery {
 }
 
 impl DnsQuery for BlockingDnsQuery {
-    fn poll(&mut self) -> io::Result<impl Iterator<Item = SocketAddr>> {
+    fn poll(&mut self) -> io::Result<impl IntoIterator<Item = SocketAddr>> {
         let addrs = self.addrs.get_or_insert_with(|| {
             format!("{}:{}", self.host, self.port)
                 .to_socket_addrs()
@@ -51,7 +51,7 @@ impl DnsQuery for BlockingDnsQuery {
                 .take(MAX_ADDRS_PER_QUERY)
                 .collect()
         });
-        Ok(addrs.iter().cloned())
+        Ok(addrs.clone())
     }
 }
 
@@ -63,6 +63,7 @@ pub trait AffinityConfig {
     fn get_core_id<S>(cfg: &AsyncDnsResolverConfig<S>, cpu_set: Vec<CoreId>) -> Option<CoreId>;
 }
 
+#[derive(Debug)]
 pub struct AsyncDnsResolverConfig<S> {
     affinity_cpu_index: Option<usize>,
     affinity_cpu_id: Option<CoreId>,
@@ -186,15 +187,15 @@ impl AsyncDnsQuery {
 }
 
 impl DnsQuery for AsyncDnsQuery {
-    fn poll(&mut self) -> io::Result<impl Iterator<Item = SocketAddr>> {
+    fn poll(&mut self) -> io::Result<impl IntoIterator<Item = SocketAddr>> {
         if let Some(addrs) = self.addrs.as_ref() {
             let addrs = addrs.clone();
-            return Ok(addrs.into_iter());
+            return Ok(addrs);
         }
         match self.response.try_recv() {
             Ok(res) => {
                 self.addrs = Some(res.addrs);
-                Ok(self.addrs.as_ref().unwrap().clone().into_iter())
+                Ok(self.addrs.as_ref().unwrap().clone())
             }
             Err(TryRecvError::Empty) => Err(io::Error::new(ErrorKind::WouldBlock, "try again")),
             Err(TryRecvError::Disconnected) => Err(io::Error::other("channel disconnected")),
@@ -268,7 +269,7 @@ mod tests {
     fn should_resolve_blocking() {
         let mut resolver = BlockingDnsResolver;
         let mut query = resolver.new_query("fstream.binance.com", 443).unwrap();
-        let addrs = query.poll().unwrap().collect::<Vec<_>>();
+        let addrs = query.poll().unwrap().into_iter().collect::<Vec<_>>();
         println!("{:#?}", addrs);
     }
 
@@ -280,7 +281,7 @@ mod tests {
         loop {
             match query.poll() {
                 Ok(addrs) => {
-                    println!("{:#?}", addrs.collect::<Vec<_>>());
+                    println!("{:#?}", addrs.into_iter().collect::<Vec<_>>());
                     break;
                 }
                 Err(err) => if err.kind() == ErrorKind::WouldBlock {},

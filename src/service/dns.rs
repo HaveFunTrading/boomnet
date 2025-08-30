@@ -1,7 +1,9 @@
+use core_affinity::CoreId;
 use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::fmt::Display;
 use std::io::ErrorKind;
+use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::TryRecvError;
 use std::thread::JoinHandle;
@@ -53,6 +55,87 @@ impl DnsQuery for BlockingDnsQuery {
     }
 }
 
+pub struct NoAffinity;
+pub struct AffinityCpuIndex;
+pub struct AffinityCpuId;
+
+pub trait AffinityConfig {
+    fn get_core_id<S>(cfg: &AsyncDnsResolverConfig<S>, cpu_set: Vec<CoreId>) -> Option<CoreId>;
+}
+
+pub struct AsyncDnsResolverConfig<S> {
+    affinity_cpu_index: Option<usize>,
+    affinity_cpu_id: Option<CoreId>,
+    state: PhantomData<S>,
+}
+
+impl AsyncDnsResolverConfig<NoAffinity> {
+    pub fn new() -> AsyncDnsResolverConfig<NoAffinity> {
+        AsyncDnsResolverConfig {
+            affinity_cpu_index: None,
+            affinity_cpu_id: None,
+            state: PhantomData,
+        }
+    }
+}
+
+impl Default for AsyncDnsResolverConfig<NoAffinity> {
+    fn default() -> AsyncDnsResolverConfig<NoAffinity> {
+        AsyncDnsResolverConfig::new()
+    }
+}
+
+pub fn new_async_dns_resolver_config() -> AsyncDnsResolverConfig<NoAffinity> {
+    AsyncDnsResolverConfig {
+        affinity_cpu_index: None,
+        affinity_cpu_id: None,
+        state: PhantomData,
+    }
+}
+
+impl<S: AffinityConfig> AsyncDnsResolverConfig<S> {
+    pub fn get_core_id(&self, cpu_set: Vec<CoreId>) -> Option<CoreId> {
+        S::get_core_id(self, cpu_set)
+    }
+}
+
+impl AsyncDnsResolverConfig<NoAffinity> {
+    pub fn with_cpu_index(self, cpu_index: usize) -> AsyncDnsResolverConfig<AffinityCpuIndex> {
+        AsyncDnsResolverConfig {
+            affinity_cpu_index: Some(cpu_index),
+            affinity_cpu_id: None,
+            state: PhantomData,
+        }
+    }
+
+    pub fn with_cpu_id(self, cpu_id: usize) -> AsyncDnsResolverConfig<AffinityCpuId> {
+        AsyncDnsResolverConfig {
+            affinity_cpu_index: None,
+            affinity_cpu_id: Some(CoreId { id: cpu_id }),
+            state: PhantomData,
+        }
+    }
+}
+
+impl AffinityConfig for NoAffinity {
+    fn get_core_id<S>(_cfg: &AsyncDnsResolverConfig<S>, _cpu_set: Vec<CoreId>) -> Option<CoreId> {
+        None
+    }
+}
+
+impl AffinityConfig for AffinityCpuId {
+    fn get_core_id<S>(cfg: &AsyncDnsResolverConfig<S>, cpu_set: Vec<CoreId>) -> Option<CoreId> {
+        assert!(cpu_set.contains(cfg.affinity_cpu_id.as_ref()?), "core id not present in the available cpu set");
+        cfg.affinity_cpu_id
+    }
+}
+
+impl AffinityConfig for AffinityCpuIndex {
+    fn get_core_id<S>(cfg: &AsyncDnsResolverConfig<S>, cpu_set: Vec<CoreId>) -> Option<CoreId> {
+        Some(cpu_set[cfg.affinity_cpu_index?])
+    }
+}
+
 pub struct AsyncDnsResolver {
     requests: std::sync::mpsc::SyncSender<DnsRequest>,
     _handle: JoinHandle<()>,
@@ -60,14 +143,20 @@ pub struct AsyncDnsResolver {
 
 impl AsyncDnsResolver {
     pub fn new() -> io::Result<Self> {
+        Self::new_with_config(Default::default())
+    }
+
+    pub fn new_with_config<S: AffinityConfig>(cfg: AsyncDnsResolverConfig<S>) -> io::Result<Self> {
         let (tx, rx) = std::sync::mpsc::sync_channel(256);
-        let handle = DnsWorker::start_on_thread(rx)?;
+        let cpu_set =
+            core_affinity::get_core_ids().ok_or_else(|| io::Error::other("unable to retrieve available cpu set"))?;
+        let core_id = cfg.get_core_id(cpu_set);
+        let handle = DnsWorker::start_on_thread(rx, core_id)?;
         Ok(AsyncDnsResolver {
             requests: tx,
             _handle: handle,
         })
     }
-    // new_with_config (... affinity)
 }
 
 impl DnsResolver for AsyncDnsResolver {
@@ -118,9 +207,15 @@ struct DnsWorker {
 }
 
 impl DnsWorker {
-    fn start_on_thread(requests: std::sync::mpsc::Receiver<DnsRequest>) -> io::Result<JoinHandle<()>> {
+    fn start_on_thread(
+        requests: std::sync::mpsc::Receiver<DnsRequest>,
+        core_id: Option<CoreId>,
+    ) -> io::Result<JoinHandle<()>> {
         let builder = thread::Builder::new().name("dns-worker".to_owned());
         builder.spawn(move || {
+            if let Some(core_id) = core_id {
+                core_affinity::set_for_current(core_id);
+            }
             let mut worker = Self { requests };
             loop {
                 worker.poll().unwrap();

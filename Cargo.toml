@@ -41,6 +41,7 @@ memchr = { version = "2.7.4", optional = true }
 itoa = { version = "1.0.15", optional = true }
 smallvec = "1.15.0"
 smallstr = "0.3.1"
+core_affinity = "0.8.3"
 
 [dependencies.webpki-roots]
 version = "0.26.0"

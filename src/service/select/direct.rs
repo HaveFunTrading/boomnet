@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::marker::PhantomData;
 
+use crate::service::dns::BlockingDnsResolver;
 use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::service::node::IONode;
 use crate::service::select::{Selectable, Selector, SelectorToken};
@@ -49,21 +50,24 @@ impl<S: Selectable> Selector for DirectSelector<S> {
 }
 
 impl<E: Endpoint> IntoIOService<E> for DirectSelector<E::Target> {
-    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource>
+    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self, SystemTimeClockSource)
+        IOService::new(self, SystemTimeClockSource, BlockingDnsResolver)
     }
 }
 
 impl<C: Context, E: EndpointWithContext<C>> IntoIOServiceWithContext<E, C> for DirectSelector<E::Target> {
-    fn into_io_service_with_context(self, _ctx: &mut C) -> IOService<Self, E, C, SystemTimeClockSource>
+    fn into_io_service_with_context(
+        self,
+        _ctx: &mut C,
+    ) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized,
     {
-        IOService::new(self, SystemTimeClockSource)
+        IOService::new(self, SystemTimeClockSource, BlockingDnsResolver)
     }
 }

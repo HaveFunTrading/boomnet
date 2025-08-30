@@ -63,7 +63,7 @@ fn boomnet_rtt_benchmark_io_service(c: &mut Criterion) {
     // setup io service
     let mut ctx = TestContext::new();
     let mut io_service = DirectSelector::new().unwrap().into_io_service_with_context(&mut ctx);
-    io_service.register(TestEndpoint::new(9003, MSG));
+    io_service.register(TestEndpoint::new(9003, MSG)).unwrap();
 
     group.bench_function("boomnet_rtt_io_service", |b| {
         b.iter(|| {

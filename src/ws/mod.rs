@@ -173,7 +173,7 @@ impl<S: Read + Write> Websocket<S> {
     /// }
     /// ```
     #[inline]
-    pub fn read_batch(&mut self) -> Result<Batch<S>, Error> {
+    pub fn read_batch(&mut self) -> Result<Batch<'_, S>, Error> {
         match self.state.read(&mut self.stream).no_block() {
             Ok(()) => Ok(Batch { websocket: self }),
             Err(err) => {

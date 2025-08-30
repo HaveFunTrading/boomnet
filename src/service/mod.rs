@@ -2,17 +2,20 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
+use std::io::ErrorKind;
 use std::marker::PhantomData;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::time::Duration;
 
+use crate::service::dns::{BlockingDnsResolver, DnsQuery, DnsResolver};
 use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
 use crate::service::node::IONode;
 use crate::service::select::{Selector, SelectorToken};
 use crate::service::time::{SystemTimeClockSource, TimeSource};
-use crate::stream::ConnectionInfo;
+use crate::stream::ConnectionInfoProvider;
 use log::{error, warn};
 
+pub mod dns;
 pub mod endpoint;
 mod node;
 pub mod select;
@@ -27,20 +30,21 @@ pub struct Handle(SelectorToken);
 
 /// Handles the lifecycle of endpoints (see [`Endpoint`]), which are typically network connections.
 /// It uses `SelectService` pattern for managing asynchronous I/O operations.
-pub struct IOService<S: Selector, E, C, TS> {
+pub struct IOService<S: Selector, E, C, TS, D: DnsResolver> {
     selector: S,
-    pending_endpoints: VecDeque<(Handle, E)>,
+    pending_endpoints: VecDeque<(Handle, D::Query, E)>,
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
     next_endpoint_create_time_ns: u64,
     context: PhantomData<C>,
     auto_disconnect: Option<Box<dyn Fn() -> Duration>>,
     time_source: TS,
+    dns_resolver: D,
 }
 
 /// Defines how an instance that implements `SelectService` can be transformed
 /// into an [`IOService`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOService<E> {
-    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource>
+    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized;
@@ -49,15 +53,18 @@ pub trait IntoIOService<E> {
 /// Defines how an instance that implements [`Selector`] can be transformed
 /// into an [`IOService`] with [`Context`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOServiceWithContext<E, C: Context> {
-    fn into_io_service_with_context(self, context: &mut C) -> IOService<Self, E, C, SystemTimeClockSource>
+    fn into_io_service_with_context(
+        self,
+        context: &mut C,
+    ) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized;
 }
 
-impl<S: Selector, E, C, TS> IOService<S, E, C, TS> {
+impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     /// Creates new instance of [`IOService`].
-    pub fn new(selector: S, time_source: TS) -> IOService<S, E, C, TS> {
+    pub fn new(selector: S, time_source: TS, dns_resolver: D) -> IOService<S, E, C, TS, D> {
         Self {
             selector,
             pending_endpoints: VecDeque::new(),
@@ -66,16 +73,17 @@ impl<S: Selector, E, C, TS> IOService<S, E, C, TS> {
             context: PhantomData,
             auto_disconnect: None,
             time_source,
+            dns_resolver,
         }
     }
 
     /// Specify TTL for each [`Endpoint`] connection.
-    pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C, TS> {
+    pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C, TS, D> {
         self.with_auto_disconnect_supplier(move || auto_disconnect)
     }
 
     /// Specify TTL supplier for each [`Endpoint`] connection.
-    pub fn with_auto_disconnect_supplier<F>(self, f: F) -> IOService<S, E, C, TS>
+    pub fn with_auto_disconnect_supplier<F>(self, f: F) -> IOService<S, E, C, TS, D>
     where
         F: Fn() -> Duration + 'static,
     {
@@ -86,23 +94,43 @@ impl<S: Selector, E, C, TS> IOService<S, E, C, TS> {
     }
 
     /// Specify custom [`TimeSource`] instead of the default system time source.
-    pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, E, C, T> {
+    pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, E, C, T, D> {
         IOService {
             time_source,
-            pending_endpoints: self.pending_endpoints,
+            pending_endpoints: Default::default(),
             context: self.context,
             auto_disconnect: self.auto_disconnect,
-            io_nodes: self.io_nodes,
+            io_nodes: Default::default(),
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
             selector: self.selector,
+            dns_resolver: self.dns_resolver,
+        }
+    }
+
+    /// Specify custom [`TimeSource`] instead of the default system time source.
+    pub fn with_dns_resolver<DR: DnsResolver>(self, dns_resolver: DR) -> IOService<S, E, C, TS, DR> {
+        IOService {
+            time_source: self.time_source,
+            pending_endpoints: Default::default(),
+            context: self.context,
+            auto_disconnect: self.auto_disconnect,
+            io_nodes: Default::default(),
+            next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
+            selector: self.selector,
+            dns_resolver,
         }
     }
 
     /// Registers a new [`Endpoint`] with the service and return a handle to it.
-    pub fn register(&mut self, endpoint: E) -> Handle {
+    pub fn register(&mut self, endpoint: E) -> io::Result<Handle>
+    where
+        E: ConnectionInfoProvider,
+    {
         let handle = Handle(self.selector.next_token());
-        self.pending_endpoints.push_back((handle, endpoint));
-        handle
+        let info = endpoint.connection_info();
+        let query = self.dns_resolver.new_query(info.host(), info.port())?;
+        self.pending_endpoints.push_back((handle, query, endpoint));
+        Ok(handle)
     }
 
     /// Deregister [`Endpoint`] with the service based on a handle.
@@ -120,7 +148,7 @@ impl<S: Selector, E, C, TS> IOService<S, E, C, TS> {
                 if let Some(index_to_remove) = index_to_remove {
                     self.pending_endpoints
                         .remove(index_to_remove)
-                        .map(|(_, endpoint)| endpoint)
+                        .map(|(_, _, endpoint)| endpoint)
                 } else {
                     None
                 }
@@ -148,24 +176,32 @@ impl<S: Selector, E, C, TS> IOService<S, E, C, TS> {
 
     /// Return iterator over pending endpoints.
     #[inline]
-    pub fn pending(&self) -> impl Iterator<Item = &(Handle, E)> {
+    pub fn pending(&self) -> impl Iterator<Item = &(Handle, D::Query, E)> {
         self.pending_endpoints.iter()
     }
 
     #[inline]
-    fn resolve_dns(connection_info: &ConnectionInfo) -> io::Result<SocketAddr> {
-        connection_info
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| io::Error::other("unable to resolve dns address"))
+    fn resolve_dns(query: &mut impl DnsQuery) -> io::Result<Option<SocketAddr>> {
+        match query.poll() {
+            Ok(addrs) => {
+                let addr = addrs
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| io::Error::other("unable to resolve dns address"))?;
+                Ok(Some(addr))
+            }
+            Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 }
 
-impl<S, E, TS> IOService<S, E, (), TS>
+impl<S, E, TS, D> IOService<S, E, (), TS, D>
 where
     S: Selector,
     E: Endpoint<Target = S::Target>,
     TS: TimeSource,
+    D: DnsResolver,
 {
     /// This method polls all registered endpoints for readiness and performs I/O operations based
     /// on the ['Selector'] poll results. It then iterates through all endpoints, either
@@ -176,16 +212,24 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = self.time_source.current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some((handle, mut endpoint)) = self.pending_endpoints.pop_front() {
-                    let addr = Self::resolve_dns(endpoint.connection_info())?;
-                    match endpoint.create_target(addr)? {
-                        Some(stream) => {
-                            let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                            let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source);
-                            self.selector.register(handle.0, &mut io_node)?;
-                            self.io_nodes.insert(handle.0, io_node);
+                if let Some((handle, mut query, mut endpoint)) = self.pending_endpoints.pop_front() {
+                    if let Some(addr) = Self::resolve_dns(&mut query)? {
+                        match endpoint.create_target(addr)? {
+                            Some(stream) => {
+                                let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
+                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source, addr);
+                                self.selector.register(handle.0, &mut io_node)?;
+                                self.io_nodes.insert(handle.0, io_node);
+                            }
+                            None => {
+                                // request new dns query
+                                let info = endpoint.connection_info();
+                                let query = self.dns_resolver.new_query(info.host(), info.port())?;
+                                self.pending_endpoints.push_back((handle, query, endpoint))
+                            }
                         }
-                        None => self.pending_endpoints.push_back((handle, endpoint)),
+                    } else {
+                        self.pending_endpoints.push_back((handle, query, endpoint))
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -203,11 +247,15 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect() {
-                        warn!("endpoint auto disconnected after {:?}", io_node.ttl);
+                        let host = io_node.as_endpoint().1.connection_info().host();
+                        let addr = io_node.addr;
+                        warn!("endpoint {addr} [{host}] auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate() {
-                            self.pending_endpoints.push_back((handle, endpoint));
+                            let info = endpoint.connection_info();
+                            let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
+                            self.pending_endpoints.push_back((handle, query, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
                         }
@@ -232,7 +280,9 @@ where
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate() {
-                    self.pending_endpoints.push_back((handle, endpoint));
+                    let info = endpoint.connection_info();
+                    let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
+                    self.pending_endpoints.push_back((handle, query, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");
                 }
@@ -262,12 +312,13 @@ where
     }
 }
 
-impl<S, E, C, TS> IOService<S, E, C, TS>
+impl<S, E, C, TS, D> IOService<S, E, C, TS, D>
 where
     S: Selector,
     C: Context,
     E: EndpointWithContext<C, Target = S::Target>,
     TS: TimeSource,
+    D: DnsResolver,
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
     /// on the `SelectService` poll results. It then iterates through all endpoints, either
@@ -278,16 +329,24 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = self.time_source.current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some((handle, mut endpoint)) = self.pending_endpoints.pop_front() {
-                    let addr = Self::resolve_dns(endpoint.connection_info())?;
-                    match endpoint.create_target(addr, context)? {
-                        Some(stream) => {
-                            let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                            let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source);
-                            self.selector.register(handle.0, &mut io_node)?;
-                            self.io_nodes.insert(handle.0, io_node);
+                if let Some((handle, mut query, mut endpoint)) = self.pending_endpoints.pop_front() {
+                    if let Some(addr) = Self::resolve_dns(&mut query)? {
+                        match endpoint.create_target(addr, context)? {
+                            Some(stream) => {
+                                let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
+                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source, addr);
+                                self.selector.register(handle.0, &mut io_node)?;
+                                self.io_nodes.insert(handle.0, io_node);
+                            }
+                            None => {
+                                // request new dns query
+                                let info = endpoint.connection_info();
+                                let query = self.dns_resolver.new_query(info.host(), info.port())?;
+                                self.pending_endpoints.push_back((handle, query, endpoint))
+                            }
                         }
-                        None => self.pending_endpoints.push_back((handle, endpoint)),
+                    } else {
+                        self.pending_endpoints.push_back((handle, query, endpoint))
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -305,11 +364,15 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect(context) {
-                        warn!("endpoint auto disconnected after {:?}", io_node.ttl);
+                        let host = io_node.as_endpoint().1.connection_info().host();
+                        let addr = io_node.addr;
+                        warn!("endpoint {addr} [{host}] auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                         if endpoint.can_recreate(context) {
-                            self.pending_endpoints.push_back((handle, endpoint));
+                            let info = endpoint.connection_info();
+                            let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
+                            self.pending_endpoints.push_back((handle, query, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
                         }
@@ -333,7 +396,9 @@ where
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(context) {
-                    self.pending_endpoints.push_back((handle, endpoint));
+                    let info = endpoint.connection_info();
+                    let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
+                    self.pending_endpoints.push_back((handle, query, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");
                 }

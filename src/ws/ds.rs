@@ -27,7 +27,7 @@ impl<D: DataSource> Websocket<D> {
         Ok(Websocket {
             stream: data_source.into_stream(),
             closed: false,
-            state: State::connection(),
+            state: State::connection(Default::default()),
         })
     }
 }

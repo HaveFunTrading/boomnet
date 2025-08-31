@@ -1,12 +1,12 @@
+use crate::buffer::{BufferPoolRef, OwnedReadBuffer};
+use crate::util::into_array;
+use crate::ws::{Error, WebsocketFrame, protocol};
 use std::io;
 use std::io::Read;
 
-use crate::util::into_array;
-use crate::ws::{Error, ReadBuffer, WebsocketFrame, protocol};
-
 #[derive(Debug)]
 pub struct Decoder {
-    buffer: ReadBuffer,
+    buffer: OwnedReadBuffer<4096>,
     decode_state: DecodeState,
     fin: bool,
     payload_length: usize,
@@ -24,9 +24,9 @@ enum DecodeState {
 }
 
 impl Decoder {
-    pub fn new() -> Self {
+    pub fn new(pool: &mut BufferPoolRef) -> Self {
         Self {
-            buffer: ReadBuffer::new(),
+            buffer: pool.acquire(),
             decode_state: DecodeState::ReadingHeader,
             fin: false,
             op_code: 0,

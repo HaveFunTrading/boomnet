@@ -3,10 +3,12 @@
 //! The buffer should be used when implementing protocols on top of streams. It offers
 //! a number of methods to retrieve the bytes with zero-copy semantics.
 
+use crate::util::NoBlock;
 use std::io::Read;
 use std::{io, ptr};
 
-use crate::util::NoBlock;
+// re-export
+pub use pool::*;
 
 const DEFAULT_INITIAL_CAPACITY: usize = 32768;
 
@@ -42,6 +44,34 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
             head: 0,
             tail: 0,
         }
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            inner: Vec::new(),
+            head: 0,
+            tail: 0,
+        }
+    }
+
+    #[inline]
+    pub fn from_bytes(bytes: Vec<u8>) -> ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
+        assert!(
+            CHUNK_SIZE <= INITIAL_CAPACITY,
+            "CHUNK_SIZE ({CHUNK_SIZE}) must be less or equal than {INITIAL_CAPACITY}"
+        );
+        assert!(bytes.len() >= INITIAL_CAPACITY, "bytes len must be equal or greater than {INITIAL_CAPACITY}");
+        ReadBuffer {
+            inner: bytes,
+            head: 0,
+            tail: 0,
+        }
+    }
+
+    #[inline]
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.inner
     }
 
     #[inline]
@@ -173,12 +203,182 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 }
 
+/// Pooled, per-thread reusable byte buffers.
+///
+/// This module exposes a **per-thread** buffer pool. Call
+/// [`default_buffer_pool_ref`] to obtain a cheap, clonable handle to the
+/// current thread’s pool. Acquired buffers are returned to the pool on
+/// [`Drop`] via an RAII guard ([`OwnedReadBuffer`]).
+///
+/// ## Concurrency
+/// - The pool is **thread-local**. Each thread gets its own pool instance.
+/// - Handles are built on `Rc<RefCell<…>>` and are therefore **not** `Send`/`Sync`.
+///
+/// ## Complexity notes
+/// - `acquire` performs a linear scan to find a buffer with `len() >= INITIAL_CAPACITY`.
+///   This is O(n) in the number of stored buffers.
+///
+/// ## Example
+/// ```no_run
+/// // Get this thread's pool and acquire a buffer.
+/// use boomnet::buffer::default_buffer_pool_ref;
+///
+/// let mut pool = default_buffer_pool_ref();
+/// let mut buf = pool.acquire::<4096, 8192>();
+///
+/// // Use the buffer (implements `Deref`/`DerefMut` to `ReadBuffer`).
+/// // ...
+///
+/// // On drop, the buffer is automatically returned to the pool.
+/// drop(buf);
+///
+/// // Cloning the handle is cheap (Rc clone); it does NOT create a new pool.
+/// let _pool2 = pool.clone();
+/// ```
+mod pool {
+    use crate::buffer::{DEFAULT_INITIAL_CAPACITY, ReadBuffer};
+    use std::cell::{OnceCell, RefCell};
+    use std::ops::{Deref, DerefMut};
+    use std::rc::Rc;
+
+    thread_local! {
+        /// Per-thread storage for the default buffer pool handle.
+        ///
+        /// The value inside is initialized lazily on the first call to
+        /// [`default_buffer_pool_ref`] on a given thread.
+        static DEFAULT_BUFFER_POOL: OnceCell<BufferPoolRef> = const { OnceCell::new() };
+    }
+
+    /// Returns this thread’s default [`BufferPoolRef`] (creating it on first use).
+    ///
+    /// Cloning the returned handle is cheap (it only clones an `Rc`) and all
+    /// clones on the same thread refer to the **same** underlying pool.
+    pub fn default_buffer_pool_ref() -> BufferPoolRef {
+        DEFAULT_BUFFER_POOL.with(|cell| cell.get_or_init(BufferPoolRef::default).clone())
+    }
+
+    /// Cheap, clonable handle to a **per-thread** buffer pool.
+    ///
+    /// Internally wraps `Rc<RefCell<internal::BufferPool>>`, so it is **not**
+    /// `Send`/`Sync` and must only be used on the thread that created it.
+    ///
+    /// Use [`BufferPoolRef::acquire`] to get an [`OwnedReadBuffer`]; when the
+    /// guard is dropped, the buffer is automatically returned to the pool.
+    #[derive(Clone, Default, Debug)]
+    pub struct BufferPoolRef {
+        inner: Rc<RefCell<BufferPool>>,
+    }
+
+    impl BufferPoolRef {
+        /// Acquire a buffer from the pool (or allocate a new one) and wrap it in an
+        /// RAII guard that returns the buffer on [`Drop`].
+        pub fn acquire<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize>(
+            &self,
+        ) -> OwnedReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
+            OwnedReadBuffer {
+                inner: self.inner.borrow_mut().acquire(),
+                pool: self.clone(),
+            }
+        }
+
+        /// Return a buffer to the pool.
+        ///
+        /// You typically don’t need to call this directly. Dropping
+        /// [`OwnedReadBuffer`] does it for you.
+        pub fn release<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize>(
+            &self,
+            buffer: ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>,
+        ) {
+            self.inner.borrow_mut().release(buffer)
+        }
+    }
+
+    /// RAII guard for an acquired pooled buffer.
+    ///
+    /// When the guard is dropped, the underlying buffer is returned to
+    /// the current thread’s pool it came from.
+    #[derive(Debug)]
+    pub struct OwnedReadBuffer<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize = DEFAULT_INITIAL_CAPACITY> {
+        inner: ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>,
+        pool: BufferPoolRef,
+    }
+
+    impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> Deref for OwnedReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
+        type Target = ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> DerefMut
+        for OwnedReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>
+    {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.inner
+        }
+    }
+
+    impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> Drop for OwnedReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
+        fn drop(&mut self) {
+            let buffer = std::mem::replace(&mut self.inner, ReadBuffer::empty());
+            self.pool.release(buffer)
+        }
+    }
+
+    /// Simple vector-backed buffer pool.
+    ///
+    /// Stores raw `Vec<u8>` buffers and hands them out wrapped as `ReadBuffer`.
+    /// On `release`, buffers are pushed back for reuse.
+    #[derive(Default, Debug)]
+    pub struct BufferPool {
+        buffers: Vec<Vec<u8>>,
+    }
+
+    impl BufferPool {
+        /// Acquire a buffer with at least `INITIAL_CAPACITY` bytes.
+        ///
+        /// Performs a linear scan for the first stored buffer satisfying the
+        /// capacity requirement; otherwise allocates a new zeroed vector.
+        pub fn acquire<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize>(
+            &mut self,
+        ) -> ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
+            let idx = self.buffers.iter().position(|b| b.capacity() >= INITIAL_CAPACITY);
+            let bytes = match idx {
+                Some(i) => self.buffers.swap_remove(i),
+                None => vec![0u8; INITIAL_CAPACITY],
+            };
+            ReadBuffer::from_bytes(bytes)
+        }
+
+        /// Return a buffer to the pool for future reuse.
+        pub fn release<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize>(
+            &mut self,
+            buffer: ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>,
+        ) {
+            let bytes = buffer.into_bytes();
+            self.buffers.push(bytes);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn should_clone_buffer_ref_without_new_allocation() {
+            let a = default_buffer_pool_ref();
+            let b = default_buffer_pool_ref();
+            assert!(Rc::ptr_eq(&a.inner, &b.inner)); // same allocation
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::io::Cursor;
     use std::io::ErrorKind::{UnexpectedEof, WouldBlock};
-
-    use super::*;
 
     #[test]
     fn should_read_from_stream() {

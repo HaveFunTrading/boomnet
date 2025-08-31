@@ -9,13 +9,13 @@ use http::StatusCode;
 use httparse::Response;
 use rand::{Rng, rng};
 
-use crate::buffer::ReadBuffer;
+use crate::buffer::{BufferPoolRef, OwnedReadBuffer};
 use crate::ws::Error;
 use crate::ws::handshake::HandshakeState::{Completed, NotStarted, Pending};
 
 #[derive(Debug)]
 pub struct Handshaker {
-    buffer: ReadBuffer<1>,
+    buffer: OwnedReadBuffer<1>,
     state: HandshakeState,
     server_name: String,
     endpoint: String,
@@ -30,9 +30,9 @@ pub enum HandshakeState {
 }
 
 impl Handshaker {
-    pub fn new(server_name: &str, endpoint: &str) -> Self {
+    pub fn new(server_name: &str, endpoint: &str, pool: &mut BufferPoolRef) -> Self {
         Self {
-            buffer: ReadBuffer::new(),
+            buffer: pool.acquire(),
             state: NotStarted,
             server_name: server_name.to_string(),
             endpoint: endpoint.to_string(),

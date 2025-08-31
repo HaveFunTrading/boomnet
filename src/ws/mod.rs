@@ -54,14 +54,16 @@
 //! }
 //! ```
 
-use crate::buffer;
+use crate::buffer::{BufferPoolRef, default_buffer_pool_ref};
 use crate::service::select::Selectable;
+use crate::stream::tcp::TcpStream;
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 use crate::stream::tls::{IntoTlsStream, TlsReadyStream, TlsStream};
 use crate::stream::{BindAndConnect, ConnectionInfoProvider};
 use crate::util::NoBlock;
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
 use crate::ws::decoder::Decoder;
+pub use crate::ws::error::Error;
 use crate::ws::handshake::Handshaker;
 #[cfg(feature = "mio")]
 use mio::{Interest, Registry, Token, event::Source};
@@ -72,9 +74,6 @@ use std::io::{Read, Write};
 use thiserror::Error;
 use url::Url;
 
-// re-export
-pub use crate::ws::error::Error;
-
 mod decoder;
 pub mod ds;
 mod encoder;
@@ -82,8 +81,6 @@ mod error;
 mod handshake;
 mod protocol;
 pub mod util;
-
-type ReadBuffer = buffer::ReadBuffer<4096>;
 
 /// Supported web socket frame variants.
 pub enum WebsocketFrame {
@@ -107,12 +104,14 @@ pub struct Websocket<S> {
     state: State,
 }
 
-impl<S> Websocket<S> {
-    pub fn new(stream: S, server_name: &str, endpoint: &str) -> Websocket<S> {
+impl<S: ConnectionInfoProvider> Websocket<S> {
+    pub fn new(stream: S, endpoint: &str) -> Websocket<S> {
+        let connection_info = stream.connection_info().clone();
+        let server_name = connection_info.host();
         Self {
             stream,
             closed: false,
-            state: State::handshake(server_name, endpoint),
+            state: State::handshake(server_name, endpoint, default_buffer_pool_ref()),
         }
     }
 
@@ -128,7 +127,7 @@ impl<S> Websocket<S> {
     #[inline]
     pub const fn handshake_complete(&self) -> bool {
         match self.state {
-            State::Handshake(_) => false,
+            State::Handshake(_, _) => false,
             State::Connection(_) => true,
         }
     }
@@ -275,17 +274,17 @@ impl<S: Selectable> Selectable for Websocket<S> {
 
 #[derive(Debug)]
 enum State {
-    Handshake(Handshaker),
+    Handshake(Handshaker, BufferPoolRef),
     Connection(Decoder),
 }
 
 impl State {
-    pub fn handshake(server_name: &str, endpoint: &str) -> Self {
-        Self::Handshake(Handshaker::new(server_name, endpoint))
+    pub fn handshake(server_name: &str, endpoint: &str, mut pool: BufferPoolRef) -> Self {
+        Self::Handshake(Handshaker::new(server_name, endpoint, &mut pool), pool)
     }
 
-    pub fn connection() -> Self {
-        Self::Connection(Decoder::new())
+    pub fn connection(mut pool: BufferPoolRef) -> Self {
+        Self::Connection(Decoder::new(&mut pool))
     }
 }
 
@@ -293,7 +292,7 @@ impl State {
     #[inline]
     fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
         match self {
-            State::Handshake(handshake) => handshake.read(stream),
+            State::Handshake(handshake, _) => handshake.read(stream),
             State::Connection(decoder) => decoder.read(stream),
         }
     }
@@ -301,10 +300,10 @@ impl State {
     #[inline]
     fn next<S: Read + Write>(&mut self, stream: &mut S) -> Result<Option<WebsocketFrame>, Error> {
         match self {
-            State::Handshake(handshake) => match handshake.perform_handshake(stream) {
+            State::Handshake(handshake, pool) => match handshake.perform_handshake(stream) {
                 Ok(()) => {
                     handshake.drain_pending_message_buffer(stream, encoder::send)?;
-                    *self = State::connection();
+                    *self = State::connection(pool.clone());
                     Ok(None)
                 }
                 Err(err) if err.kind() == WouldBlock => Ok(None),
@@ -331,7 +330,7 @@ impl State {
     #[inline]
     fn send<S: Write>(&mut self, stream: &mut S, fin: bool, op_code: u8, body: Option<&[u8]>) -> Result<(), Error> {
         match self {
-            State::Handshake(handshake) => {
+            State::Handshake(handshake, _) => {
                 handshake.buffer_message(fin, op_code, body);
                 Ok(())
             }
@@ -393,8 +392,7 @@ where
     where
         Self: Sized,
     {
-        let host = self.connection_info().host().to_owned();
-        Websocket::new(self, &host, endpoint)
+        Websocket::new(self, endpoint)
     }
 }
 
@@ -420,7 +418,7 @@ where
 
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 pub trait TryIntoTlsReadyWebsocket {
-    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<std::net::TcpStream>>>
+    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
     where
         Self: Sized;
 }
@@ -430,7 +428,7 @@ impl<T> TryIntoTlsReadyWebsocket for T
 where
     T: AsRef<str>,
 {
-    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<std::net::TcpStream>>>
+    fn try_into_tls_ready_websocket(self) -> io::Result<Websocket<TlsReadyStream<TcpStream>>>
     where
         Self: Sized,
     {
@@ -448,6 +446,7 @@ where
         };
 
         let stream = std::net::TcpStream::bind_and_connect(addr[0], None, None)?;
+        let stream = TcpStream::new(stream, url.clone().try_into()?);
 
         let tls_ready_stream = match url.scheme() {
             "ws" => Ok(TlsReadyStream::Plain(stream)),
@@ -455,6 +454,6 @@ where
             scheme => Err(io::Error::other(format!("unrecognised url scheme: {scheme}"))),
         }?;
 
-        Ok(Websocket::new(tls_ready_stream, url.host_str().unwrap(), &endpoint))
+        Ok(Websocket::new(tls_ready_stream, &endpoint))
     }
 }

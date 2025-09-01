@@ -8,12 +8,11 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::service::dns::{BlockingDnsResolver, DnsQuery, DnsResolver};
-use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
+use crate::service::endpoint::{Context, DisconnectReason, Endpoint, EndpointWithContext};
 use crate::service::node::IONode;
 use crate::service::select::{Selector, SelectorToken};
 use crate::service::time::{SystemTimeClockSource, TimeSource};
 use crate::stream::ConnectionInfoProvider;
-use log::{error, warn};
 
 pub mod dns;
 pub mod endpoint;
@@ -247,12 +246,9 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect() {
-                        let host = io_node.as_endpoint().1.connection_info().host();
-                        let addr = io_node.addr;
-                        warn!("endpoint {addr} [{host}] auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
-                        if endpoint.can_recreate() {
+                        if endpoint.can_recreate(DisconnectReason::auto_disconnect(io_node.ttl)) {
                             let info = endpoint.connection_info();
                             let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                             self.pending_endpoints.push_back((handle, query, endpoint));
@@ -264,7 +260,6 @@ where
                         // extend the endpoint TTL
                         let extend = auto_disconnect().as_nanos() as u64;
                         io_node.disconnect_time_ns = io_node.disconnect_time_ns.saturating_add(extend);
-                        // io_node.disconnect_time_ns += auto_disconnect.as_nanos() as u64;
                         true
                     };
                 }
@@ -276,10 +271,9 @@ where
         self.io_nodes.retain(|_token, io_node| {
             let (stream, (_, endpoint)) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream) {
-                error!("error when polling endpoint [{}]: {}", endpoint.connection_info().host(), err);
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
-                if endpoint.can_recreate() {
+                if endpoint.can_recreate(DisconnectReason::other(err)) {
                     let info = endpoint.connection_info();
                     let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                     self.pending_endpoints.push_back((handle, query, endpoint));
@@ -364,12 +358,9 @@ where
                 if force_disconnect {
                     // check if we really have to disconnect
                     return if io_node.as_endpoint_mut().1.can_auto_disconnect(context) {
-                        let host = io_node.as_endpoint().1.connection_info().host();
-                        let addr = io_node.addr;
-                        warn!("endpoint {addr} [{host}] auto disconnected after {:?}", io_node.ttl);
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
-                        if endpoint.can_recreate(context) {
+                        if endpoint.can_recreate(DisconnectReason::auto_disconnect(io_node.ttl), context) {
                             let info = endpoint.connection_info();
                             let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                             self.pending_endpoints.push_back((handle, query, endpoint));
@@ -392,10 +383,9 @@ where
         self.io_nodes.retain(|_token, io_node| {
             let (stream, (_, endpoint)) = io_node.as_parts_mut();
             if let Err(err) = endpoint.poll(stream, context) {
-                error!("error when polling endpoint [{}]: {}", endpoint.connection_info().host(), err);
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
-                if endpoint.can_recreate(context) {
+                if endpoint.can_recreate(DisconnectReason::other(err), context) {
                     let info = endpoint.connection_info();
                     let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                     self.pending_endpoints.push_back((handle, query, endpoint));

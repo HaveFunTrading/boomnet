@@ -1,12 +1,12 @@
 use ansi_term::Color::{Green, Purple, Red, Yellow};
-use boomnet::service::endpoint::Context;
 use boomnet::service::endpoint::ws::{TlsWebsocket, TlsWebsocketEndpoint, TlsWebsocketEndpointWithContext};
+use boomnet::service::endpoint::{Context, DisconnectReason};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tcp::TcpStream;
 use boomnet::stream::tls::{IntoTlsStream, TlsConfigExt};
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{IntoTlsWebsocket, IntoWebsocket, WebsocketFrame};
-use log::info;
+use log::{info, warn};
 use std::io;
 use std::net::SocketAddr;
 
@@ -99,6 +99,11 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
             }
         }
         Ok(())
+    }
+
+    fn can_recreate(&mut self, reason: DisconnectReason) -> bool {
+        warn!("connection disconnected: {reason}");
+        true
     }
 }
 

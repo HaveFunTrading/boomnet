@@ -35,7 +35,6 @@
 //! ```
 
 use core_affinity::CoreId;
-use log::error;
 use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::fmt::Display;
@@ -286,10 +285,7 @@ impl DnsWorker {
             loop {
                 match worker.poll() {
                     Ok(_) => {}
-                    Err(err) => {
-                        error!("dns worker error: {}", err);
-                        break;
-                    }
+                    Err(err) => panic!("dns worker error: {}", err),
                 }
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }

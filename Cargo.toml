@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.57"
+version = "0.0.58"
 edition = "2024"
 license = "MIT"
 description = "Framework for building low latency clients on top of TCP."
@@ -27,7 +27,6 @@ ext = []
 [dependencies]
 url = "2.5.0"
 thiserror = "1.0.50"
-log = "0.4.20"
 socket2 = { version = "0.5.5", features = ["all"] }
 pnet = "0.34.0"
 mio = { version = "1", features = ["net", "os-poll"], optional = true }
@@ -59,6 +58,7 @@ tungstenite = "0.26.1"
 criterion = "0.5.1"
 idle = "0.2.0"
 core_affinity = "0.8.1"
+log = "0.4.20"
 
 [lints.clippy]
 uninit_assumed_init = "allow"

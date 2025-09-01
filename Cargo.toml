@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.58"
+version = "0.0.59"
 edition = "2024"
 license = "MIT"
 description = "Framework for building low latency clients on top of TCP."
@@ -41,6 +41,7 @@ itoa = { version = "1.0.15", optional = true }
 smallvec = "1.15.0"
 smallstr = "0.3.1"
 core_affinity = "0.8.3"
+log = "0.4.20"
 
 [dependencies.webpki-roots]
 version = "0.26.0"
@@ -57,8 +58,6 @@ ansi_term = "0.12.1"
 tungstenite = "0.26.1"
 criterion = "0.5.1"
 idle = "0.2.0"
-core_affinity = "0.8.1"
-log = "0.4.20"
 
 [lints.clippy]
 uninit_assumed_init = "allow"

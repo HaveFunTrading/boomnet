@@ -35,6 +35,7 @@
 //! ```
 
 use core_affinity::CoreId;
+use log::info;
 use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::fmt::Display;
@@ -280,6 +281,7 @@ impl DnsWorker {
         builder.spawn(move || {
             if let Some(core_id) = core_id {
                 core_affinity::set_for_current(core_id);
+                info!("successfully pinned current thread to core {}", core_id.id);
             }
             let mut worker = Self { requests };
             loop {

@@ -141,8 +141,20 @@ impl BindAndConnect for TcpStream {
         A: ToSocketAddrs,
         F: FnOnce(&Socket) -> io::Result<()>,
     {
+        let socket_addr = addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::other("unable to resolve socket address"))?;
+
         // create a socket but do not connect yet
-        let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+        let socket = Socket::new(
+            match &socket_addr {
+                SocketAddr::V4(_) => Domain::IPV4,
+                SocketAddr::V6(_) => Domain::IPV6,
+            },
+            Type::STREAM,
+            Some(Protocol::TCP),
+        )?;
         socket.set_nonblocking(true)?;
         socket.set_nodelay(true)?;
         socket.set_keepalive(true)?;
@@ -163,13 +175,7 @@ impl BindAndConnect for TcpStream {
 
         // connect to the remote endpoint
         // we can ignore EINPROGRESS error due to non-blocking socket
-        match socket.connect(
-            &addr
-                .to_socket_addrs()?
-                .next()
-                .ok_or_else(|| io::Error::other("unable to resolve socket address"))?
-                .into(),
-        ) {
+        match socket.connect(&socket_addr.into()) {
             Ok(()) => Ok(socket.into()),
             Err(err) if err.raw_os_error() == Some(EINPROGRESS) => Ok(socket.into()),
             Err(err) => Err(err),

@@ -259,9 +259,6 @@ mod pool {
 
     /// Cheap, clonable handle to a **per-thread** buffer pool.
     ///
-    /// Internally wraps `Rc<RefCell<internal::BufferPool>>`, so it is **not**
-    /// `Send`/`Sync` and must only be used on the thread that created it.
-    ///
     /// Use [`BufferPoolRef::acquire`] to get an [`OwnedReadBuffer`]; when the
     /// guard is dropped, the buffer is automatically returned to the pool.
     #[derive(Clone, Default, Debug)]

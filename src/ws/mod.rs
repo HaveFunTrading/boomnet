@@ -104,14 +104,31 @@ pub struct Websocket<S> {
     state: State,
 }
 
-impl<S: ConnectionInfoProvider> Websocket<S> {
-    pub fn new(stream: S, endpoint: &str) -> Websocket<S> {
+impl<S> Websocket<S> {
+    /// Create a new websocket by wrapping the provided `stream` and using `endpoint`. The client
+    /// will first initiate handshake in order to upgrade the stream to a fully duplex web socket
+    /// connection.
+    pub fn new(stream: S, endpoint: &str) -> Websocket<S>
+    where
+        S: ConnectionInfoProvider,
+    {
         let connection_info = stream.connection_info().clone();
         let server_name = connection_info.host();
         Self {
             stream,
             closed: false,
             state: State::handshake(server_name, endpoint, default_buffer_pool_ref()),
+        }
+    }
+
+    /// Crate a new websocket by wrapping a stream that has already performed handshake. It is the
+    /// user's responsibility to make sure the handshake has been completed. Otherwise, can result
+    /// in undefined behaviour.
+    pub fn new_without_handshake(stream: S) -> Websocket<S> {
+        Self {
+            stream,
+            closed: false,
+            state: State::connection(default_buffer_pool_ref()),
         }
     }
 

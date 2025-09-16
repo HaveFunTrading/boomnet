@@ -124,7 +124,7 @@ impl<S> Websocket<S> {
     /// Crate a new websocket by wrapping a stream that has already performed handshake. It is the
     /// user's responsibility to make sure the handshake has been completed. Otherwise, can result
     /// in undefined behaviour.
-    pub fn new_without_handshake(stream: S) -> Websocket<S> {
+    pub fn new_with_handshake_complete(stream: S) -> Websocket<S> {
         Self {
             stream,
             closed: false,

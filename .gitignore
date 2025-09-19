@@ -5,3 +5,4 @@ Cargo.lock
 scratch
 massif.out.*
 *.log
+*.swp

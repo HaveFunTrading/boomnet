@@ -403,6 +403,23 @@ mod __openssl {
             let mut tls_config = TlsConfig {
                 openssl_config: builder,
             };
+
+            // NOTE: openssl will look at default locations for the ca/cert information set at compile
+            // time, however when the crate is included with the `vendored` feature flag, these are
+            // not set.
+            // If not the library will look under the following env vars:
+            // * SSL_CERT_FILE
+            // * SSL_CERT_DIR
+            // So here the system is probed for values to use as a starting point.
+            // NOTE: cargo leaks these env vars when running the binary under it.
+            let probe_res = openssl_probe::probe();
+            if let Err(e) = tls_config
+                .openssl_config
+                .load_verify_locations(probe_res.cert_file.as_deref(), probe_res.cert_dir.as_deref())
+            {
+                log::warn!("Was not able to default ssl paths due to {:?}", e);
+            }
+
             configure(&mut tls_config);
 
             let connector = tls_config.openssl_config.build();

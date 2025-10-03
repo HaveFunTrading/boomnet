@@ -6,6 +6,7 @@ use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 pub use __openssl::TlsStream;
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
 pub use __rustls::TlsStream;
+use log::warn;
 #[cfg(feature = "mio")]
 use mio::{Interest, Registry, Token, event::Source};
 #[cfg(feature = "openssl")]
@@ -15,6 +16,8 @@ use rustls::ClientConfig;
 use std::fmt::Debug;
 use std::io;
 use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::sync::OnceLock;
 
 /// Used to configure TLS backend.
 pub struct TlsConfig {
@@ -28,6 +31,21 @@ pub struct TlsConfig {
 pub trait TlsConfigExt {
     /// Disable certificate verification.
     fn with_no_cert_verification(&mut self);
+
+    #[cfg(feature = "openssl")]
+    /// Try to resolve default certificate paths.
+    ///
+    /// NOTE: openssl will look at default locations for the ca/cert information set at compile
+    /// time, however when the crate is included with the `vendored` feature flag, these are
+    /// not set.
+    /// If not the library will look under the following env vars:
+    /// * SSL_CERT_FILE
+    /// * SSL_CERT_DIR
+    ///
+    /// So here the system is probed for values to use as a starting point.
+    ///
+    /// NOTE: cargo leaks these env vars when running the binary under it.
+    fn with_default_cert_paths(&mut self);
 }
 
 impl TlsConfig {
@@ -64,6 +82,32 @@ impl TlsConfigExt for TlsConfig {
             .set_certificate_verifier(std::sync::Arc::new(crate::stream::tls::__rustls::NoCertVerification));
         #[cfg(feature = "openssl")]
         self.openssl_config.set_verify(SslVerifyMode::NONE);
+    }
+
+    #[cfg(feature = "openssl")]
+    fn with_default_cert_paths(&mut self) {
+        static PROBED_CERTS: OnceLock<(Option<PathBuf>, Option<PathBuf>)> = OnceLock::new();
+
+        fn probed_certs() -> &'static (Option<PathBuf>, Option<PathBuf>) {
+            PROBED_CERTS.get_or_init(|| {
+                let p = openssl_probe::probe();
+                (p.cert_file, p.cert_dir)
+            })
+        }
+
+        let (cert_file, cert_dir) = probed_certs();
+
+        // if neither is set, skip the call to avoid a guaranteed error.
+        if cert_file.is_none() && cert_dir.is_none() {
+            return;
+        }
+
+        if let Err(e) = self
+            .openssl_config
+            .load_verify_locations(cert_file.as_deref(), cert_dir.as_deref())
+        {
+            warn!("was not able to default ssl paths due to {:?}", e);
+        }
     }
 }
 
@@ -262,7 +306,6 @@ mod __openssl {
     use crate::service::select::Selectable;
     use crate::stream::tls::TlsConfig;
     use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
-    use log::warn;
     #[cfg(feature = "mio")]
     use mio::{Interest, Registry, Token, event::Source};
     use openssl::ssl::{
@@ -274,46 +317,12 @@ mod __openssl {
     use std::io;
     use std::io::ErrorKind::WouldBlock;
     use std::io::{Read, Write};
-    use std::path::PathBuf;
-    use std::sync::OnceLock;
-
-    static PROBED_CERTS: OnceLock<(Option<PathBuf>, Option<PathBuf>)> = OnceLock::new();
 
     trait SslConnectionBuilderExt {
-        fn apply_probed_default_locations(&mut self);
-
         fn setup_default_keylog_policy(&mut self);
     }
 
     impl SslConnectionBuilderExt for SslConnectorBuilder {
-        // NOTE: openssl will look at default locations for the ca/cert information set at compile
-        // time, however when the crate is included with the `vendored` feature flag, these are
-        // not set.
-        // If not the library will look under the following env vars:
-        // * SSL_CERT_FILE
-        // * SSL_CERT_DIR
-        // So here the system is probed for values to use as a starting point.
-        // NOTE: cargo leaks these env vars when running the binary under it.
-        fn apply_probed_default_locations(&mut self) {
-            fn probed_certs() -> &'static (Option<PathBuf>, Option<PathBuf>) {
-                PROBED_CERTS.get_or_init(|| {
-                    let p = openssl_probe::probe();
-                    (p.cert_file, p.cert_dir)
-                })
-            }
-
-            let (cert_file, cert_dir) = probed_certs();
-
-            // if neither is set, skip the call to avoid a guaranteed error.
-            if cert_file.is_none() && cert_dir.is_none() {
-                return;
-            }
-
-            if let Err(e) = self.load_verify_locations(cert_file.as_deref(), cert_dir.as_deref()) {
-                warn!("was not able to default ssl paths due to {:?}", e);
-            }
-        }
-
         fn setup_default_keylog_policy(&mut self) {
             fn default_key_log_callback(_ssl: &SslRef, line: &str) {
                 let path = std::env::var("SSLKEYLOGFILE").expect("SSLKEYLOGFILE not set");
@@ -456,7 +465,6 @@ mod __openssl {
         {
             let mut builder = SslConnector::builder(SslMethod::tls_client()).map_err(io::Error::other)?;
             builder.setup_default_keylog_policy();
-            builder.apply_probed_default_locations();
 
             let mut tls_config = TlsConfig {
                 openssl_config: builder,

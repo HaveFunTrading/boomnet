@@ -6,7 +6,6 @@ use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 pub use __openssl::TlsStream;
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
 pub use __rustls::TlsStream;
-use log::warn;
 #[cfg(feature = "mio")]
 use mio::{Interest, Registry, Token, event::Source};
 #[cfg(feature = "openssl")]
@@ -16,8 +15,6 @@ use rustls::ClientConfig;
 use std::fmt::Debug;
 use std::io;
 use std::io::{Read, Write};
-use std::path::PathBuf;
-use std::sync::OnceLock;
 
 /// Used to configure TLS backend.
 pub struct TlsConfig {
@@ -86,6 +83,10 @@ impl TlsConfigExt for TlsConfig {
 
     #[cfg(feature = "openssl")]
     fn with_default_cert_paths(&mut self) {
+        use log::warn;
+        use std::path::PathBuf;
+        use std::sync::OnceLock;
+
         static PROBED_CERTS: OnceLock<(Option<PathBuf>, Option<PathBuf>)> = OnceLock::new();
 
         fn probed_certs() -> &'static (Option<PathBuf>, Option<PathBuf>) {

@@ -22,6 +22,8 @@ pub mod time;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 
+const DNS_RESOLVE_TIMEOUT_NS: u64 = Duration::from_secs(5).as_nanos() as u64;
+
 /// Endpoint handle.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
@@ -31,7 +33,7 @@ pub struct Handle(SelectorToken);
 /// It uses `SelectService` pattern for managing asynchronous I/O operations.
 pub struct IOService<S: Selector, E, C, TS, D: DnsResolver> {
     selector: S,
-    pending_endpoints: VecDeque<(Handle, D::Query, E)>,
+    pending_endpoints: VecDeque<(Handle, D::Query, u64, E)>,
     io_nodes: HashMap<SelectorToken, IONode<S::Target, E>>,
     next_endpoint_create_time_ns: u64,
     context: PhantomData<C>,
@@ -124,11 +126,13 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     pub fn register(&mut self, endpoint: E) -> io::Result<Handle>
     where
         E: ConnectionInfoProvider,
+        TS: TimeSource,
     {
         let handle = Handle(self.selector.next_token());
         let info = endpoint.connection_info();
         let query = self.dns_resolver.new_query(info.host(), info.port())?;
-        self.pending_endpoints.push_back((handle, query, endpoint));
+        let now = self.time_source.current_time_nanos();
+        self.pending_endpoints.push_back((handle, query, now, endpoint));
         Ok(handle)
     }
 
@@ -147,7 +151,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
                 if let Some(index_to_remove) = index_to_remove {
                     self.pending_endpoints
                         .remove(index_to_remove)
-                        .map(|(_, _, endpoint)| endpoint)
+                        .map(|(_, _, _, endpoint)| endpoint)
                 } else {
                     None
                 }
@@ -175,18 +179,27 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
 
     /// Return iterator over pending endpoints.
     #[inline]
-    pub fn pending(&self) -> impl Iterator<Item = &(Handle, D::Query, E)> {
-        self.pending_endpoints.iter()
+    pub fn pending(&self) -> impl Iterator<Item = (&Handle, &E)> {
+        self.pending_endpoints
+            .iter()
+            .map(|(handle, _, _, endpoint)| (handle, endpoint))
     }
 
     #[inline]
-    fn resolve_dns(query: &mut impl DnsQuery) -> io::Result<Option<SocketAddr>> {
+    fn resolve_dns(&self, query: &mut impl DnsQuery, created_time_ns: u64) -> io::Result<Option<SocketAddr>>
+    where
+        TS: TimeSource,
+    {
+        let now = self.time_source.current_time_nanos();
+        if now > created_time_ns + DNS_RESOLVE_TIMEOUT_NS {
+            return Err(io::Error::new(ErrorKind::TimedOut, "dns resolution timed out"));
+        }
         match query.poll() {
             Ok(addrs) => {
                 let addr = addrs
                     .into_iter()
                     .next()
-                    .ok_or_else(|| io::Error::other("unable to resolve dns address"))?;
+                    .ok_or_else(|| io::Error::other("dns resolution dio not return any address"))?;
                 Ok(Some(addr))
             }
             Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
@@ -211,8 +224,8 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = self.time_source.current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some((handle, mut query, mut endpoint)) = self.pending_endpoints.pop_front() {
-                    if let Some(addr) = Self::resolve_dns(&mut query)? {
+                if let Some((handle, mut query, query_time_ns, mut endpoint)) = self.pending_endpoints.pop_front() {
+                    if let Some(addr) = self.resolve_dns(&mut query, query_time_ns)? {
                         match endpoint.create_target(addr)? {
                             Some(stream) => {
                                 let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
@@ -224,11 +237,13 @@ where
                                 // request new dns query
                                 let info = endpoint.connection_info();
                                 let query = self.dns_resolver.new_query(info.host(), info.port())?;
-                                self.pending_endpoints.push_back((handle, query, endpoint))
+                                let now = self.time_source.current_time_nanos();
+                                self.pending_endpoints.push_back((handle, query, now, endpoint))
                             }
                         }
                     } else {
-                        self.pending_endpoints.push_back((handle, query, endpoint))
+                        self.pending_endpoints
+                            .push_back((handle, query, query_time_ns, endpoint))
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -251,7 +266,8 @@ where
                         if endpoint.can_recreate(DisconnectReason::auto_disconnect(io_node.ttl)) {
                             let info = endpoint.connection_info();
                             let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
-                            self.pending_endpoints.push_back((handle, query, endpoint));
+                            let now = self.time_source.current_time_nanos();
+                            self.pending_endpoints.push_back((handle, query, now, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
                         }
@@ -276,7 +292,8 @@ where
                 if endpoint.can_recreate(DisconnectReason::other(err)) {
                     let info = endpoint.connection_info();
                     let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
-                    self.pending_endpoints.push_back((handle, query, endpoint));
+                    let now = self.time_source.current_time_nanos();
+                    self.pending_endpoints.push_back((handle, query, now, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");
                 }
@@ -323,8 +340,8 @@ where
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = self.time_source.current_time_nanos();
             if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some((handle, mut query, mut endpoint)) = self.pending_endpoints.pop_front() {
-                    if let Some(addr) = Self::resolve_dns(&mut query)? {
+                if let Some((handle, mut query, query_time_ns, mut endpoint)) = self.pending_endpoints.pop_front() {
+                    if let Some(addr) = self.resolve_dns(&mut query, query_time_ns)? {
                         match endpoint.create_target(addr, context)? {
                             Some(stream) => {
                                 let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
@@ -336,11 +353,13 @@ where
                                 // request new dns query
                                 let info = endpoint.connection_info();
                                 let query = self.dns_resolver.new_query(info.host(), info.port())?;
-                                self.pending_endpoints.push_back((handle, query, endpoint))
+                                let now = self.time_source.current_time_nanos();
+                                self.pending_endpoints.push_back((handle, query, now, endpoint))
                             }
                         }
                     } else {
-                        self.pending_endpoints.push_back((handle, query, endpoint))
+                        self.pending_endpoints
+                            .push_back((handle, query, query_time_ns, endpoint))
                     }
                 }
                 self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
@@ -363,7 +382,8 @@ where
                         if endpoint.can_recreate(DisconnectReason::auto_disconnect(io_node.ttl), context) {
                             let info = endpoint.connection_info();
                             let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
-                            self.pending_endpoints.push_back((handle, query, endpoint));
+                            let now = self.time_source.current_time_nanos();
+                            self.pending_endpoints.push_back((handle, query, now, endpoint));
                         } else {
                             panic!("unrecoverable error when polling endpoint");
                         }
@@ -388,7 +408,8 @@ where
                 if endpoint.can_recreate(DisconnectReason::other(err), context) {
                     let info = endpoint.connection_info();
                     let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
-                    self.pending_endpoints.push_back((handle, query, endpoint));
+                    let now = self.time_source.current_time_nanos();
+                    self.pending_endpoints.push_back((handle, query, now, endpoint));
                 } else {
                     panic!("unrecoverable error when polling endpoint");
                 }

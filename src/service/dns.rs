@@ -38,7 +38,7 @@ use core_affinity::CoreId;
 use log::info;
 use smallstr::SmallString;
 use smallvec::SmallVec;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -91,6 +91,12 @@ pub struct BlockingDnsQuery {
     host: SmallString<[u8; MAX_HOSTNAME_LEN_BEFORE_SPILL]>,
     port: u16,
     addrs: Option<SmallVec<[SocketAddr; MAX_ADDRS_PER_QUERY]>>,
+}
+
+impl Display for BlockingDnsQuery {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
 }
 
 impl DnsQuery for BlockingDnsQuery {
@@ -233,7 +239,7 @@ impl DnsResolver for AsyncDnsResolver {
             port,
         };
         self.requests.try_send(request).map_err(io::Error::other)?;
-        Ok(AsyncDnsQuery::new(rx))
+        Ok(AsyncDnsQuery::new(host, port, rx))
     }
 }
 
@@ -241,13 +247,26 @@ impl DnsResolver for AsyncDnsResolver {
 ///
 /// Use [`DnsQuery::poll`] repeatedly; it returns `Err(WouldBlock)` until results are ready.
 pub struct AsyncDnsQuery {
+    host: SmallString<[u8; MAX_HOSTNAME_LEN_BEFORE_SPILL]>,
+    port: u16,
     response: std::sync::mpsc::Receiver<DnsResponse>,
     addrs: Option<SmallVec<[SocketAddr; MAX_ADDRS_PER_QUERY]>>,
 }
 
 impl AsyncDnsQuery {
-    fn new(response: std::sync::mpsc::Receiver<DnsResponse>) -> Self {
-        Self { response, addrs: None }
+    fn new(host: impl AsRef<str>, port: u16, response: std::sync::mpsc::Receiver<DnsResponse>) -> Self {
+        Self {
+            host: host.as_ref().into(),
+            port,
+            response,
+            addrs: None,
+        }
+    }
+}
+
+impl Display for AsyncDnsQuery {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
     }
 }
 

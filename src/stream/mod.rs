@@ -335,13 +335,13 @@ impl ConnectionInfo {
 
     /// Convert to tcp stream. This will perform DNS address resolution.
     pub fn into_tcp_stream(self) -> io::Result<tcp::TcpStream> {
-        let stream =
-            TcpStream::bind_and_connect_with_socket_config(&self, self.net_iface, self.cpu, |socket| {
-                match self.socket_config {
-                    Some(f) => f(socket),
-                    None => Ok(()),
-                }
-            })?;
+        let mut stream = TcpStream::bind_and_connect_with_socket_config(&self, self.net_iface, self.cpu, |socket| {
+            match self.socket_config {
+                Some(f) => f(socket),
+                None => Ok(()),
+            }
+        })?;
+        assert!(stream.connected()?);
         Ok(tcp::TcpStream::new(stream, self))
     }
 

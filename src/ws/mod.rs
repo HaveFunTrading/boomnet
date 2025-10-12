@@ -290,6 +290,7 @@ impl<S: Selectable> Selectable for Websocket<S> {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum State {
     Handshake(Handshaker, BufferPoolRef),
     Connection(Decoder),

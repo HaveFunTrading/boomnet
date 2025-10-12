@@ -33,6 +33,16 @@ impl TradeEndpoint {
             ws_endpoint,
         }
     }
+
+    #[inline]
+    fn poll(&mut self, ws: &mut TlsWebsocket<<Self as TlsWebsocketEndpoint>::Stream>) -> io::Result<()> {
+        for frame in ws.read_batch()? {
+            if let WebsocketFrame::Text(fin, data) = frame? {
+                println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data))
+            }
+        }
+        Ok(())
+    }
 }
 
 impl ConnectionInfoProvider for TradeEndpoint {
@@ -57,16 +67,6 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
         Ok(Some(ws))
     }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        for frame in ws.read_batch()? {
-            if let WebsocketFrame::Text(fin, data) = frame? {
-                println!("[{}] ({fin}) {}", self.id, String::from_utf8_lossy(data))
-            }
-        }
-        Ok(())
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -83,6 +83,6 @@ fn main() -> anyhow::Result<()> {
     io_service.register(endpoint_xrp)?;
 
     loop {
-        io_service.poll()?;
+        io_service.poll(|ws, endpoint| endpoint.poll(ws))?;
     }
 }

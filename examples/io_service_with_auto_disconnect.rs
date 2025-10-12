@@ -24,6 +24,6 @@ fn main() -> anyhow::Result<()> {
     io_service.register(endpoint_btc_2)?;
 
     loop {
-        io_service.poll()?;
+        io_service.poll(|ws, endpoint| endpoint.poll(ws))?;
     }
 }

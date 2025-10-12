@@ -23,11 +23,11 @@ fn main() -> anyhow::Result<()> {
         if success {
             break;
         } else {
-            io_service.poll()?;
+            io_service.poll(|ws, endpoint| endpoint.poll(ws))?;
         }
     }
 
     loop {
-        io_service.poll()?;
+        io_service.poll(|ws, endpoint| endpoint.poll(ws))?;
     }
 }

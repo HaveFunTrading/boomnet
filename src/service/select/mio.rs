@@ -86,10 +86,7 @@ impl<E: Endpoint> IntoIOService<E> for MioSelector<E::Target> {
 }
 
 impl<C: Context, E: EndpointWithContext<C>> IntoIOServiceWithContext<E, C> for MioSelector<E::Target> {
-    fn into_io_service_with_context(
-        self,
-        _ctx: &mut C,
-    ) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
+    fn into_io_service_with_context(self) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized,

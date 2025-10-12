@@ -54,10 +54,7 @@ pub trait IntoIOService<E> {
 /// Defines how an instance that implements [`Selector`] can be transformed
 /// into an [`IOService`] with [`Context`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOServiceWithContext<E, C: Context> {
-    fn into_io_service_with_context(
-        self,
-        context: &mut C,
-    ) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
+    fn into_io_service_with_context(self) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized;
@@ -219,7 +216,10 @@ where
     /// on the ['Selector'] poll results. It then iterates through all endpoints, either
     /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
-    pub fn poll(&mut self) -> io::Result<()> {
+    pub fn poll<F>(&mut self, mut action: F) -> io::Result<()>
+    where
+        F: FnMut(&mut E::Target, &mut E) -> io::Result<()>,
+    {
         // check for pending endpoints (one at a time & throttled)
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = self.time_source.current_time_nanos();
@@ -285,8 +285,8 @@ where
 
         // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
-            let (stream, (_, endpoint)) = io_node.as_parts_mut();
-            if let Err(err) = endpoint.poll(stream) {
+            let (target, (_, endpoint)) = io_node.as_parts_mut();
+            if let Err(err) = action(target, endpoint) {
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(DisconnectReason::other(err)) {
@@ -335,7 +335,10 @@ where
     /// on the `SelectService` poll results. It then iterates through all endpoints, either
     /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
-    pub fn poll(&mut self, context: &mut C) -> io::Result<()> {
+    pub fn poll<F>(&mut self, context: &mut C, mut action: F) -> io::Result<()>
+    where
+        F: FnMut(&mut E::Target, &mut C, &mut E) -> io::Result<()>,
+    {
         // check for pending endpoints (one at a time & throttled)
         if !self.pending_endpoints.is_empty() {
             let current_time_ns = self.time_source.current_time_nanos();
@@ -401,8 +404,8 @@ where
 
         // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
-            let (stream, (_, endpoint)) = io_node.as_parts_mut();
-            if let Err(err) = endpoint.poll(stream, context) {
+            let (target, (_, endpoint)) = io_node.as_parts_mut();
+            if let Err(err) = action(target, context, endpoint) {
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(DisconnectReason::other(err), context) {

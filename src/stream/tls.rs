@@ -350,6 +350,7 @@ mod __openssl {
     #[derive(Debug)]
     enum State<S> {
         Handshake(Option<(MidHandshakeSslStream<S>, Vec<u8>)>),
+        Drain(Option<(SslStream<S>, Vec<u8>, usize)>),
         Stream(SslStream<S>),
     }
 
@@ -360,6 +361,10 @@ mod __openssl {
                     Some((stream, _)) => Ok(stream.get_mut()),
                     None => Err(io::Error::other("unable to perform TLS handshake")),
                 },
+                State::Drain(stream_and_buf) => match stream_and_buf.as_mut() {
+                    Some((stream, ..)) => Ok(stream.get_mut()),
+                    None => Err(io::Error::other("unable to drain pending message buffer")),
+                },
                 State::Stream(stream) => Ok(stream.get_mut()),
             }
         }
@@ -369,6 +374,7 @@ mod __openssl {
         fn connection_info(&self) -> &ConnectionInfo {
             match self {
                 State::Handshake(stream_and_buf) => stream_and_buf.as_ref().unwrap().0.get_ref().connection_info(),
+                State::Drain(stream_and_buf) => stream_and_buf.as_ref().unwrap().0.get_ref().connection_info(),
                 State::Stream(stream) => stream.get_ref().connection_info(),
             }
         }
@@ -409,10 +415,8 @@ mod __openssl {
                 State::Handshake(stream_and_buf) => {
                     if let Some((mid_handshake, buffer)) = stream_and_buf.take() {
                         return match mid_handshake.handshake() {
-                            Ok(mut ssl_stream) => {
-                                // drain the pending message buffer
-                                ssl_stream.write_all(&buffer)?;
-                                self.state = State::Stream(ssl_stream);
+                            Ok(ssl_stream) => {
+                                self.state = State::Drain(Some((ssl_stream, buffer, 0)));
                                 Err(io::Error::from(WouldBlock))
                             }
                             Err(HandshakeError::WouldBlock(mid)) => {
@@ -434,6 +438,20 @@ mod __openssl {
                     }
                     Err(io::Error::from(WouldBlock))
                 }
+                State::Drain(stream_and_buf) => {
+                    let (mut stream, buffer, written) = stream_and_buf
+                        .take()
+                        .ok_or_else(|| io::Error::other("stream not present"))?;
+                    let mut from = written;
+                    let remaining = &buffer[from..];
+                    if remaining.is_empty() {
+                        self.state = State::Stream(stream);
+                    } else {
+                        from += stream.write(remaining)?;
+                        self.state = State::Drain(Some((stream, buffer, from)));
+                    }
+                    Err(io::Error::from(WouldBlock))
+                }
                 State::Stream(stream) => stream.read(buf),
             }
         }
@@ -447,6 +465,11 @@ mod __openssl {
                     buffer.extend_from_slice(buf);
                     Ok(buf.len())
                 }
+                State::Drain(stream_and_buf) => {
+                    let (_, buffer, _) = stream_and_buf.as_mut().unwrap();
+                    buffer.extend_from_slice(buf);
+                    Ok(buf.len())
+                }
                 State::Stream(stream) => stream.write(buf),
             }
         }
@@ -454,6 +477,7 @@ mod __openssl {
         fn flush(&mut self) -> io::Result<()> {
             match &mut self.state {
                 State::Handshake(_) => Ok(()),
+                State::Drain(_) => Ok(()),
                 State::Stream(stream) => stream.flush(),
             }
         }

@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.67"
+version = "0.0.68"
 edition = "2024"
 license = "MIT"
 description = "Framework for building low latency clients on top of TCP."
@@ -23,6 +23,7 @@ openssl = ["dep:openssl", "dep:openssl-probe"]
 http = ["dep:http", "httparse", "memchr", "itoa"]
 ws = ["rand", "base64", "dep:http", "httparse"]
 ext = []
+trace = []
 
 [dependencies]
 url = "2.5.0"

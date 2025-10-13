@@ -68,6 +68,8 @@ impl Handshaker {
                 if !remaining.is_empty() {
                     self.bytes_sent += stream.write(remaining)?;
                 } else {
+                    #[cfg(feature = "trace")]
+                    log::info!("handshake state changed from PENDING_REQUEST to PENDING_RESPONSE");
                     self.state = PendingResponse;
                 }
                 Err(io::Error::from(WouldBlock))
@@ -82,6 +84,10 @@ impl Handshaker {
                     if response.code.unwrap() != StatusCode::SWITCHING_PROTOCOLS.as_u16() {
                         return Err(io::Error::other("unable to switch protocols"));
                     }
+                    #[cfg(feature = "trace")]
+                    log::info!(
+                        "handshake state changed from PENDING_RESPONSE to COMPLETED, available bytes: {available}"
+                    );
                     self.state = Completed;
                 }
                 Err(io::Error::from(WouldBlock))
@@ -109,6 +115,9 @@ impl Handshaker {
     }
 
     fn prepare_handshake_request(&mut self) -> io::Result<()> {
+        #[cfg(feature = "trace")]
+        log::info!("starting handshake request");
+
         let outbound = &mut self.outbound_buffer;
         outbound.write_all(format!("GET {} HTTP/1.1\r\n", self.endpoint).as_bytes())?;
         outbound.write_all(format!("Host: {}\r\n", self.server_name).as_bytes())?;
@@ -118,6 +127,10 @@ impl Handshaker {
         outbound.write_all(b"Sec-WebSocket-Version: 13\r\n")?;
         outbound.write_all(b"\r\n")?;
         self.state = PendingRequest;
+
+        #[cfg(feature = "trace")]
+        log::info!("handshake state changed from NOT_STARTED to PENDING_REQUEST");
+
         Ok(())
     }
 }

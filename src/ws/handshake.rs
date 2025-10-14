@@ -1,8 +1,3 @@
-use std::collections::VecDeque;
-use std::io;
-use std::io::ErrorKind::WouldBlock;
-use std::io::{Cursor, Read, Write};
-
 use crate::buffer::{BufferPoolRef, OwnedReadBuffer};
 use crate::ws::Error;
 use crate::ws::handshake::HandshakeState::{Completed, NotStarted, PendingResponse};
@@ -12,6 +7,11 @@ use base64::engine::general_purpose;
 use http::StatusCode;
 use httparse::Response;
 use rand::{Rng, rng};
+use std::collections::VecDeque;
+use std::io;
+use std::io::ErrorKind::WouldBlock;
+use std::io::{Cursor, Read, Write};
+use std::time::{Duration, SystemTime};
 
 #[derive(Debug)]
 pub struct Handshaker {
@@ -22,6 +22,8 @@ pub struct Handshaker {
     server_name: String,
     endpoint: String,
     pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
+    #[cfg(feature = "trace")]
+    next_log_time_ms: u64,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -30,6 +32,14 @@ pub enum HandshakeState {
     PendingRequest,
     PendingResponse,
     Completed,
+}
+
+#[cfg(feature = "trace")]
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 impl Handshaker {
@@ -42,6 +52,8 @@ impl Handshaker {
             server_name: server_name.to_string(),
             endpoint: endpoint.to_string(),
             pending_msg_buffer: VecDeque::with_capacity(256),
+            #[cfg(feature = "trace")]
+            next_log_time_ms: 0,
         }
     }
 
@@ -77,8 +89,21 @@ impl Handshaker {
             }
             PendingResponse => {
                 let available = self.inbound_buffer.available();
+                #[cfg(feature = "trace")]
+                {
+                    let now = current_time_ms();
+                    if now > self.next_log_time_ms {
+                        log::info!("waiting for handshake response, received bytes: {available}");
+                        self.next_log_time_ms = now + Duration::from_secs(10).as_millis() as u64;
+                    }
+                }
                 if available >= 4 && self.inbound_buffer.view_last(4) == b"\r\n\r\n" {
                     // decode http response
+                    #[cfg(feature = "trace")]
+                    log::info!(
+                        "handshake response received: {:?}",
+                        String::from_utf8_lossy(self.inbound_buffer.view())
+                    );
                     let mut headers = [httparse::EMPTY_HEADER; 64];
                     let mut response = Response::new(&mut headers);
                     response.parse(self.inbound_buffer.view()).map_err(io::Error::other)?;

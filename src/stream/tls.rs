@@ -445,6 +445,7 @@ mod __openssl {
                     let mut from = written;
                     let remaining = &buffer[from..];
                     if remaining.is_empty() {
+                        stream.flush()?;
                         self.state = State::Stream(stream);
                     } else {
                         from += stream.write(remaining)?;

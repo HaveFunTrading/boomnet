@@ -70,6 +70,7 @@ impl Handshaker {
                 } else {
                     #[cfg(feature = "trace")]
                     log::info!("handshake state changed from PENDING_REQUEST to PENDING_RESPONSE");
+                    stream.flush()?;
                     self.state = PendingResponse;
                 }
                 Err(io::Error::from(WouldBlock))

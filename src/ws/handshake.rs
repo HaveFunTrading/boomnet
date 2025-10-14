@@ -11,7 +11,6 @@ use std::collections::VecDeque;
 use std::io;
 use std::io::ErrorKind::WouldBlock;
 use std::io::{Cursor, Read, Write};
-use std::time::{Duration, SystemTime};
 
 #[derive(Debug)]
 pub struct Handshaker {
@@ -36,8 +35,8 @@ pub enum HandshakeState {
 
 #[cfg(feature = "trace")]
 fn current_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
 }
@@ -94,7 +93,7 @@ impl Handshaker {
                     let now = current_time_ms();
                     if now > self.next_log_time_ms {
                         log::info!("waiting for handshake response, received bytes: {available}");
-                        self.next_log_time_ms = now + Duration::from_secs(10).as_millis() as u64;
+                        self.next_log_time_ms = now + std::time::Duration::from_secs(10).as_millis() as u64;
                     }
                 }
                 if available >= 4 && self.inbound_buffer.view_last(4) == b"\r\n\r\n" {

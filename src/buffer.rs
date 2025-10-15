@@ -20,11 +20,30 @@ pub struct ReadBuffer<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize = D
 }
 
 /// Reading mode that controls [ReadBuffer::read_from] data limit.
-enum ReadMode {
-    /// Try to read up to one chunk of data.
-    Chunk,
-    /// Try to read all available data up to the buffer capacity.
-    Available,
+trait ReadMode {
+    fn read_buffer(buffer: &mut [u8], offset: usize, chunk_size: usize, available: usize) -> &'static mut [u8];
+
+    fn map_buffer(buffer: &mut [u8], offset: usize, len: usize) -> &'static mut [u8] {
+        unsafe { &mut *ptr::slice_from_raw_parts_mut(buffer.as_mut_ptr().add(offset), len) }
+    }
+}
+
+/// Try to read up to one chunk of data.
+struct ReadChunk;
+
+/// Try to read all available data up to the buffer capacity.
+struct ReadAll;
+
+impl ReadMode for ReadChunk {
+    fn read_buffer(buffer: &mut [u8], offset: usize, chunk_size: usize, _available: usize) -> &'static mut [u8] {
+        Self::map_buffer(buffer, offset, chunk_size)
+    }
+}
+
+impl ReadMode for ReadAll {
+    fn read_buffer(buffer: &mut [u8], offset: usize, _chunk_size: usize, available: usize) -> &'static mut [u8] {
+        Self::map_buffer(buffer, offset, available)
+    }
 }
 
 impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> Default for ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY> {
@@ -70,7 +89,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 
     #[inline]
-    pub fn into_bytes(self) -> Vec<u8> {
+    pub fn into_vec(self) -> Vec<u8> {
         self.inner
     }
 
@@ -83,7 +102,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     /// available to accommodate the next read of up to chunk size, the buffer will grow by a factor of 2.
     #[inline]
     pub fn read_from<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
-        self.read_from_with_mode(stream, ReadMode::Chunk)
+        self.read_from_with_mode::<S, ReadChunk>(stream)
     }
 
     /// Reads all available bytes into buffer from the provided `stream`. If there is no more space
@@ -92,18 +111,18 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     /// space in the buffer therefore reducing the number of operating system calls and increasing the throughput.
     #[inline]
     pub fn read_all_from<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
-        self.read_from_with_mode(stream, ReadMode::Available)
+        self.read_from_with_mode::<S, ReadAll>(stream)
     }
 
     #[inline]
-    fn read_from_with_mode<S: Read>(&mut self, stream: &mut S, read_mode: ReadMode) -> io::Result<()> {
+    fn read_from_with_mode<S: Read, M: ReadMode>(&mut self, stream: &mut S) -> io::Result<()> {
         #[cold]
         fn grow(buf: &mut Vec<u8>) {
             buf.resize(buf.len() * 2, 0u8);
         }
 
         #[cold]
-        fn compact<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize>(
+        const fn compact<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize>(
             buf: &mut ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>,
         ) {
             unsafe { ptr::copy(buf.inner.as_ptr().add(buf.head), buf.inner.as_mut_ptr(), buf.available()) }
@@ -127,17 +146,15 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
             grow(&mut self.inner);
         }
 
-        let read = match read_mode {
-            ReadMode::Chunk => stream.read(&mut self.inner[self.tail..self.tail + CHUNK_SIZE]),
-            ReadMode::Available => stream.read(&mut self.inner[self.tail..]),
-        };
+        let capacity = self.inner.capacity();
+        let buffer = M::read_buffer(&mut self.inner, self.tail, CHUNK_SIZE, capacity - self.tail);
 
-        self.tail += read.no_block()?;
+        self.tail += stream.read(buffer).no_block()?;
         Ok(())
     }
 
     #[inline]
-    pub fn consume_next(&mut self, len: usize) -> Option<&'static [u8]> {
+    pub const fn consume_next(&mut self, len: usize) -> Option<&'static [u8]> {
         match self.available() >= len {
             true => Some(unsafe { self.consume_next_unchecked(len) }),
             false => None,
@@ -156,7 +173,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     ///     }
     /// }
     #[inline]
-    pub unsafe fn consume_next_unchecked(&mut self, len: usize) -> &'static [u8] {
+    pub const unsafe fn consume_next_unchecked(&mut self, len: usize) -> &'static [u8] {
         unsafe {
             let consumed_view = &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), len);
             self.head += len;
@@ -165,7 +182,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     }
 
     #[inline]
-    pub fn consume_next_byte(&mut self) -> Option<u8> {
+    pub const fn consume_next_byte(&mut self) -> Option<u8> {
         match self.available() >= 1 {
             true => Some(unsafe { self.consume_next_byte_unchecked() }),
             false => None,
@@ -184,7 +201,7 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
     ///     }
     /// }
     #[inline]
-    pub unsafe fn consume_next_byte_unchecked(&mut self) -> u8 {
+    pub const unsafe fn consume_next_byte_unchecked(&mut self) -> u8 {
         unsafe {
             let byte = *self.inner.as_ptr().add(self.head);
             self.head += 1;
@@ -192,14 +209,16 @@ impl<const CHUNK_SIZE: usize, const INITIAL_CAPACITY: usize> ReadBuffer<CHUNK_SI
         }
     }
 
+    /// Return a slice with a current buffer view.
     #[inline]
-    pub fn view(&self) -> &[u8] {
-        &self.inner[self.head..self.tail]
+    pub const fn view(&self) -> &[u8] {
+        unsafe { &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.head), self.tail.saturating_sub(self.head)) }
     }
 
+    /// Return a slice with a view that contains the last `len` bytes of the buffer.
     #[inline]
-    pub fn view_last(&self, len: usize) -> &[u8] {
-        &self.inner[self.tail - len..self.tail]
+    pub const fn view_last(&self, len: usize) -> &[u8] {
+        unsafe { &*ptr::slice_from_raw_parts(self.inner.as_ptr().add(self.tail.saturating_sub(len)), len) }
     }
 }
 
@@ -353,7 +372,7 @@ mod pool {
             &mut self,
             buffer: ReadBuffer<CHUNK_SIZE, INITIAL_CAPACITY>,
         ) {
-            let bytes = buffer.into_bytes();
+            let bytes = buffer.into_vec();
             self.buffers.push(bytes);
         }
     }

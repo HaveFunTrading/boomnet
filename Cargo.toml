@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.69"
+version = "0.0.70"
 edition = "2024"
 license = "MIT"
 description = "Framework for building low latency clients on top of TCP."
@@ -56,7 +56,7 @@ optional = true
 anyhow = "1"
 env_logger = "0.10.1"
 ansi_term = "0.12.1"
-tungstenite = "0.26.1"
+tungstenite = "0.28.0"
 criterion = "0.5.1"
 idle = "0.2.0"
 

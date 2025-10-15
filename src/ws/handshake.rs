@@ -21,8 +21,6 @@ pub struct Handshaker {
     server_name: String,
     endpoint: String,
     pending_msg_buffer: VecDeque<(u8, bool, Option<Vec<u8>>)>,
-    #[cfg(feature = "trace")]
-    next_log_time_ms: u64,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -31,14 +29,6 @@ pub enum HandshakeState {
     PendingRequest,
     PendingResponse,
     Completed,
-}
-
-#[cfg(feature = "trace")]
-fn current_time_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
 }
 
 impl Handshaker {
@@ -51,8 +41,6 @@ impl Handshaker {
             server_name: server_name.to_string(),
             endpoint: endpoint.to_string(),
             pending_msg_buffer: VecDeque::with_capacity(256),
-            #[cfg(feature = "trace")]
-            next_log_time_ms: 0,
         }
     }
 
@@ -79,8 +67,6 @@ impl Handshaker {
                 if !remaining.is_empty() {
                     self.bytes_sent += stream.write(remaining)?;
                 } else {
-                    #[cfg(feature = "trace")]
-                    log::info!("handshake state changed from PENDING_REQUEST to PENDING_RESPONSE");
                     stream.flush()?;
                     self.state = PendingResponse;
                 }
@@ -88,31 +74,14 @@ impl Handshaker {
             }
             PendingResponse => {
                 let available = self.inbound_buffer.available();
-                #[cfg(feature = "trace")]
-                {
-                    let now = current_time_ms();
-                    if now > self.next_log_time_ms {
-                        log::info!("waiting for handshake response, received bytes: {available}");
-                        self.next_log_time_ms = now + std::time::Duration::from_secs(10).as_millis() as u64;
-                    }
-                }
                 if available >= 4 && self.inbound_buffer.view_last(4) == b"\r\n\r\n" {
                     // decode http response
-                    #[cfg(feature = "trace")]
-                    log::info!(
-                        "handshake response received: {:?}",
-                        String::from_utf8_lossy(self.inbound_buffer.view())
-                    );
                     let mut headers = [httparse::EMPTY_HEADER; 64];
                     let mut response = Response::new(&mut headers);
                     response.parse(self.inbound_buffer.view()).map_err(io::Error::other)?;
                     if response.code.unwrap() != StatusCode::SWITCHING_PROTOCOLS.as_u16() {
                         return Err(io::Error::other("unable to switch protocols"));
                     }
-                    #[cfg(feature = "trace")]
-                    log::info!(
-                        "handshake state changed from PENDING_RESPONSE to COMPLETED, available bytes: {available}"
-                    );
                     self.state = Completed;
                 }
                 Err(io::Error::from(WouldBlock))
@@ -140,9 +109,6 @@ impl Handshaker {
     }
 
     fn prepare_handshake_request(&mut self) -> io::Result<()> {
-        #[cfg(feature = "trace")]
-        log::info!("starting handshake request");
-
         let outbound = &mut self.outbound_buffer;
         outbound.write_all(format!("GET {} HTTP/1.1\r\n", self.endpoint).as_bytes())?;
         outbound.write_all(format!("Host: {}\r\n", self.server_name).as_bytes())?;
@@ -152,10 +118,6 @@ impl Handshaker {
         outbound.write_all(b"Sec-WebSocket-Version: 13\r\n")?;
         outbound.write_all(b"\r\n")?;
         self.state = PendingRequest;
-
-        #[cfg(feature = "trace")]
-        log::info!("handshake state changed from NOT_STARTED to PENDING_REQUEST");
-
         Ok(())
     }
 }
@@ -164,20 +126,4 @@ fn generate_nonce() -> String {
     let mut rng = rng();
     let nonce_bytes: [u8; 16] = rng.random();
     general_purpose::STANDARD.encode(nonce_bytes)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test() {
-        let mut buffer = Cursor::new([0u8; 1024]);
-
-        buffer.write_all(b"dupa12345").unwrap();
-
-        let remaining = &buffer.get_ref()[..buffer.position() as usize];
-
-        assert_eq!(remaining, b"dupa12345");
-    }
 }

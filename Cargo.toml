@@ -23,7 +23,6 @@ openssl = ["dep:openssl", "dep:openssl-probe"]
 http = ["dep:http", "httparse", "memchr", "itoa"]
 ws = ["rand", "base64", "dep:http", "httparse"]
 ext = []
-trace = []
 
 [dependencies]
 url = "2.5.0"

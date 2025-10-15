@@ -9,7 +9,7 @@ documentation = "https://docs.rs/boomnet"
 repository = "https://github.com/HaveFunTrading/boomnet"
 keywords = ["http", "async", "client", "websocket", "mio"]
 categories = ["network-programming", "web-programming::websocket", "web-programming::http-client"]
-rust-version = "1.85.1"
+rust-version = "1.87.0"
 
 [package.metadata.docs.rs]
 all-features = true

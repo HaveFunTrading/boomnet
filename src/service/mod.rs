@@ -22,8 +22,6 @@ pub mod time;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 
-const DNS_RESOLVE_TIMEOUT_NS: u64 = Duration::from_secs(5).as_nanos() as u64;
-
 /// Endpoint handle.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
@@ -40,6 +38,7 @@ pub struct IOService<S: Selector, E, C, TS, D: DnsResolver> {
     auto_disconnect: Option<Box<dyn Fn() -> Duration>>,
     time_source: TS,
     dns_resolver: D,
+    dns_query_timeout_ns: Option<u64>,
 }
 
 /// Defines how an instance that implements `SelectService` can be transformed
@@ -72,6 +71,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
             auto_disconnect: None,
             time_source,
             dns_resolver,
+            dns_query_timeout_ns: None,
         }
     }
 
@@ -91,6 +91,15 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
         }
     }
 
+    /// Specify DNS query timeout. This is only relevant when using asynchronous form of
+    /// [`DnsResolver`].
+    pub fn with_dns_query_timeout(self, timeout: Duration) -> IOService<S, E, C, TS, D> {
+        Self {
+            dns_query_timeout_ns: Some(timeout.as_nanos() as u64),
+            ..self
+        }
+    }
+
     /// Specify custom [`TimeSource`] instead of the default system time source.
     pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, E, C, T, D> {
         IOService {
@@ -102,6 +111,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
             selector: self.selector,
             dns_resolver: self.dns_resolver,
+            dns_query_timeout_ns: self.dns_query_timeout_ns,
         }
     }
 
@@ -116,6 +126,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
             selector: self.selector,
             dns_resolver,
+            dns_query_timeout_ns: self.dns_query_timeout_ns,
         }
     }
 
@@ -187,9 +198,12 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     where
         TS: TimeSource,
     {
-        let now = self.time_source.current_time_nanos();
-        if now > created_time_ns + DNS_RESOLVE_TIMEOUT_NS {
-            return Err(io::Error::new(ErrorKind::TimedOut, "dns resolution timed out"));
+        // check if dns query resolution timed out
+        if let Some(dns_query_timeout) = self.dns_query_timeout_ns {
+            let now = self.time_source.current_time_nanos();
+            if now > created_time_ns + dns_query_timeout {
+                return Err(io::Error::new(ErrorKind::TimedOut, "dns resolution timed out"));
+            }
         }
         match query.poll() {
             Ok(addrs) => {

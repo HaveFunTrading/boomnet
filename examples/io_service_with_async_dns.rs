@@ -9,10 +9,10 @@ mod common;
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let mut context = FeedContext::new();
+    let mut ctx = FeedContext::new();
 
     let mut io_service = MioSelector::new()?
-        .into_io_service_with_context(&mut context)
+        .into_io_service_with_context()
         .with_dns_resolver(AsyncDnsResolver::new()?);
 
     let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
@@ -24,6 +24,6 @@ fn main() -> anyhow::Result<()> {
     io_service.register(endpoint_xrp)?;
 
     loop {
-        io_service.poll(&mut context)?;
+        io_service.poll(&mut ctx, |ws, ctx, endpoint| endpoint.poll_ctx(ws, ctx))?;
     }
 }

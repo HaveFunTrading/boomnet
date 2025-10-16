@@ -80,7 +80,8 @@ impl Handshaker {
                     let mut response = Response::new(&mut headers);
                     response.parse(self.inbound_buffer.view()).map_err(io::Error::other)?;
                     if response.code.unwrap() != StatusCode::SWITCHING_PROTOCOLS.as_u16() {
-                        return Err(io::Error::other("unable to switch protocols"));
+                        let reason = response.reason.unwrap_or_default();
+                        return Err(io::Error::other(format!("unable to switch protocols, reason: {}", reason)));
                     }
                     self.state = Completed;
                 }

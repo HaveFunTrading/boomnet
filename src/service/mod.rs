@@ -22,8 +22,6 @@ pub mod time;
 
 const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as u64;
 
-const DNS_RESOLVE_TIMEOUT_NS: u64 = Duration::from_secs(5).as_nanos() as u64;
-
 /// Endpoint handle.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
@@ -40,6 +38,7 @@ pub struct IOService<S: Selector, E, C, TS, D: DnsResolver> {
     auto_disconnect: Option<Box<dyn Fn() -> Duration>>,
     time_source: TS,
     dns_resolver: D,
+    dns_query_timeout_ns: Option<u64>,
 }
 
 /// Defines how an instance that implements `SelectService` can be transformed
@@ -54,10 +53,7 @@ pub trait IntoIOService<E> {
 /// Defines how an instance that implements [`Selector`] can be transformed
 /// into an [`IOService`] with [`Context`], facilitating the management of asynchronous I/O operations.
 pub trait IntoIOServiceWithContext<E, C: Context> {
-    fn into_io_service_with_context(
-        self,
-        context: &mut C,
-    ) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
+    fn into_io_service_with_context(self) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized;
@@ -75,6 +71,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
             auto_disconnect: None,
             time_source,
             dns_resolver,
+            dns_query_timeout_ns: None,
         }
     }
 
@@ -94,6 +91,15 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
         }
     }
 
+    /// Specify DNS query timeout. This is only relevant when using asynchronous form of
+    /// [`DnsResolver`].
+    pub fn with_dns_query_timeout(self, timeout: Duration) -> IOService<S, E, C, TS, D> {
+        Self {
+            dns_query_timeout_ns: Some(timeout.as_nanos() as u64),
+            ..self
+        }
+    }
+
     /// Specify custom [`TimeSource`] instead of the default system time source.
     pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, E, C, T, D> {
         IOService {
@@ -105,6 +111,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
             selector: self.selector,
             dns_resolver: self.dns_resolver,
+            dns_query_timeout_ns: self.dns_query_timeout_ns,
         }
     }
 
@@ -119,6 +126,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
             selector: self.selector,
             dns_resolver,
+            dns_query_timeout_ns: self.dns_query_timeout_ns,
         }
     }
 
@@ -190,9 +198,12 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     where
         TS: TimeSource,
     {
-        let now = self.time_source.current_time_nanos();
-        if now > created_time_ns + DNS_RESOLVE_TIMEOUT_NS {
-            return Err(io::Error::new(ErrorKind::TimedOut, "dns resolution timed out"));
+        // check if dns query resolution timed out
+        if let Some(dns_query_timeout) = self.dns_query_timeout_ns {
+            let now = self.time_source.current_time_nanos();
+            if now > created_time_ns + dns_query_timeout {
+                return Err(io::Error::new(ErrorKind::TimedOut, "dns resolution timed out"));
+            }
         }
         match query.poll() {
             Ok(addrs) => {
@@ -206,6 +217,42 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
             Err(err) => Err(err),
         }
     }
+
+    #[cold]
+    fn check_pending_endpoints<F>(&mut self, create_target: F) -> io::Result<()>
+    where
+        E: ConnectionInfoProvider,
+        TS: TimeSource,
+        F: FnOnce(&mut E, SocketAddr) -> io::Result<Option<<S as Selector>::Target>>,
+    {
+        let current_time_ns = self.time_source.current_time_nanos();
+        if current_time_ns > self.next_endpoint_create_time_ns {
+            if let Some((handle, mut query, query_time_ns, mut endpoint)) = self.pending_endpoints.pop_front() {
+                if let Some(addr) = self.resolve_dns(&mut query, query_time_ns)? {
+                    match create_target(&mut endpoint, addr)? {
+                        Some(stream) => {
+                            let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
+                            let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source, addr);
+                            self.selector.register(handle.0, &mut io_node)?;
+                            self.io_nodes.insert(handle.0, io_node);
+                        }
+                        None => {
+                            // request new dns query
+                            let info = endpoint.connection_info();
+                            let query = self.dns_resolver.new_query(info.host(), info.port())?;
+                            let now = self.time_source.current_time_nanos();
+                            self.pending_endpoints.push_back((handle, query, now, endpoint))
+                        }
+                    }
+                } else {
+                    self.pending_endpoints
+                        .push_back((handle, query, query_time_ns, endpoint))
+                }
+            }
+            self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
+        }
+        Ok(())
+    }
 }
 
 impl<S, E, TS, D> IOService<S, E, (), TS, D>
@@ -217,37 +264,16 @@ where
 {
     /// This method polls all registered endpoints for readiness and performs I/O operations based
     /// on the ['Selector'] poll results. It then iterates through all endpoints, either
-    /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
+    /// updating existing streams or creating and registering new ones. If there's pending IO on the stream,
+    /// the provided `action` closure will be invoked. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
-    pub fn poll(&mut self) -> io::Result<()> {
+    pub fn poll<F>(&mut self, mut action: F) -> io::Result<()>
+    where
+        F: FnMut(&mut E::Target, &mut E) -> io::Result<()>,
+    {
         // check for pending endpoints (one at a time & throttled)
         if !self.pending_endpoints.is_empty() {
-            let current_time_ns = self.time_source.current_time_nanos();
-            if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some((handle, mut query, query_time_ns, mut endpoint)) = self.pending_endpoints.pop_front() {
-                    if let Some(addr) = self.resolve_dns(&mut query, query_time_ns)? {
-                        match endpoint.create_target(addr)? {
-                            Some(stream) => {
-                                let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source, addr);
-                                self.selector.register(handle.0, &mut io_node)?;
-                                self.io_nodes.insert(handle.0, io_node);
-                            }
-                            None => {
-                                // request new dns query
-                                let info = endpoint.connection_info();
-                                let query = self.dns_resolver.new_query(info.host(), info.port())?;
-                                let now = self.time_source.current_time_nanos();
-                                self.pending_endpoints.push_back((handle, query, now, endpoint))
-                            }
-                        }
-                    } else {
-                        self.pending_endpoints
-                            .push_back((handle, query, query_time_ns, endpoint))
-                    }
-                }
-                self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
-            }
+            self.check_pending_endpoints(|endpoint, addr| endpoint.create_target(addr))?;
         }
 
         // check for readiness events
@@ -285,8 +311,8 @@ where
 
         // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
-            let (stream, (_, endpoint)) = io_node.as_parts_mut();
-            if let Err(err) = endpoint.poll(stream) {
+            let (target, (_, endpoint)) = io_node.as_parts_mut();
+            if let Err(err) = action(target, endpoint) {
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
                 if endpoint.can_recreate(DisconnectReason::other(err)) {
@@ -333,37 +359,16 @@ where
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
     /// on the `SelectService` poll results. It then iterates through all endpoints, either
-    /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
+    /// updating existing streams or creating and registering new ones. If there's pending IO on the stream,
+    /// the provided `action` closure will be invoked. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
-    pub fn poll(&mut self, context: &mut C) -> io::Result<()> {
+    pub fn poll<F>(&mut self, ctx: &mut C, mut action: F) -> io::Result<()>
+    where
+        F: FnMut(&mut E::Target, &mut C, &mut E) -> io::Result<()>,
+    {
         // check for pending endpoints (one at a time & throttled)
         if !self.pending_endpoints.is_empty() {
-            let current_time_ns = self.time_source.current_time_nanos();
-            if current_time_ns > self.next_endpoint_create_time_ns {
-                if let Some((handle, mut query, query_time_ns, mut endpoint)) = self.pending_endpoints.pop_front() {
-                    if let Some(addr) = self.resolve_dns(&mut query, query_time_ns)? {
-                        match endpoint.create_target(addr, context)? {
-                            Some(stream) => {
-                                let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                                let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source, addr);
-                                self.selector.register(handle.0, &mut io_node)?;
-                                self.io_nodes.insert(handle.0, io_node);
-                            }
-                            None => {
-                                // request new dns query
-                                let info = endpoint.connection_info();
-                                let query = self.dns_resolver.new_query(info.host(), info.port())?;
-                                let now = self.time_source.current_time_nanos();
-                                self.pending_endpoints.push_back((handle, query, now, endpoint))
-                            }
-                        }
-                    } else {
-                        self.pending_endpoints
-                            .push_back((handle, query, query_time_ns, endpoint))
-                    }
-                }
-                self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
-            }
+            self.check_pending_endpoints(|endpoint, addr| endpoint.create_target(addr, ctx))?;
         }
 
         // check for readiness events
@@ -376,10 +381,10 @@ where
                 let force_disconnect = current_time_ns > io_node.disconnect_time_ns;
                 if force_disconnect {
                     // check if we really have to disconnect
-                    return if io_node.as_endpoint_mut().1.can_auto_disconnect(context) {
+                    return if io_node.as_endpoint_mut().1.can_auto_disconnect(ctx) {
                         self.selector.unregister(io_node).unwrap();
                         let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
-                        if endpoint.can_recreate(DisconnectReason::auto_disconnect(io_node.ttl), context) {
+                        if endpoint.can_recreate(DisconnectReason::auto_disconnect(io_node.ttl), ctx) {
                             let info = endpoint.connection_info();
                             let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                             let now = self.time_source.current_time_nanos();
@@ -401,11 +406,11 @@ where
 
         // poll endpoints
         self.io_nodes.retain(|_token, io_node| {
-            let (stream, (_, endpoint)) = io_node.as_parts_mut();
-            if let Err(err) = endpoint.poll(stream, context) {
+            let (target, (_, endpoint)) = io_node.as_parts_mut();
+            if let Err(err) = action(target, ctx, endpoint) {
                 self.selector.unregister(io_node).unwrap();
                 let (handle, mut endpoint) = io_node.endpoint.take().unwrap();
-                if endpoint.can_recreate(DisconnectReason::other(err), context) {
+                if endpoint.can_recreate(DisconnectReason::other(err), ctx) {
                     let info = endpoint.connection_info();
                     let query = self.dns_resolver.new_query(info.host(), info.port()).unwrap();
                     let now = self.time_source.current_time_nanos();

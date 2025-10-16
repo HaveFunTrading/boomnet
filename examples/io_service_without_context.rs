@@ -19,6 +19,6 @@ fn main() -> anyhow::Result<()> {
     io_service.register(endpoint_xrp)?;
 
     loop {
-        io_service.poll()?;
+        io_service.poll(|ws, endpoint| endpoint.poll(ws))?;
     }
 }

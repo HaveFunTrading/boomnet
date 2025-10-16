@@ -22,6 +22,15 @@ enum MarketDataEndpoint {
     Ticker(TickerEndpoint),
 }
 
+impl MarketDataEndpoint {
+    fn poll(&mut self, ws: &mut Websocket<TlsStream<<Self as TlsWebsocketEndpoint>::Stream>>) -> io::Result<()> {
+        match self {
+            MarketDataEndpoint::Ticker(ticker) => ticker.poll(ws),
+            MarketDataEndpoint::Trade(trade) => trade.poll(ws),
+        }
+    }
+}
+
 impl ConnectionInfoProvider for MarketDataEndpoint {
     fn connection_info(&self) -> &ConnectionInfo {
         match self {
@@ -40,13 +49,6 @@ impl TlsWebsocketEndpoint for MarketDataEndpoint {
             MarketDataEndpoint::Trade(trade) => trade.create_websocket(addr),
         }
     }
-
-    fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()> {
-        match self {
-            MarketDataEndpoint::Ticker(ticker) => TlsWebsocketEndpoint::poll(ticker, ws),
-            MarketDataEndpoint::Trade(trade) => TlsWebsocketEndpoint::poll(trade, ws),
-        }
-    }
 }
 
 struct TradeEndpoint {
@@ -63,6 +65,14 @@ impl TradeEndpoint {
             connection_info,
             instrument,
         }
+    }
+
+    #[inline]
+    fn poll(&mut self, ws: &mut TlsWebsocket<<Self as TlsWebsocketEndpoint>::Stream>) -> io::Result<()> {
+        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
+            info!("({fin}) {}", String::from_utf8_lossy(data));
+        }
+        Ok(())
     }
 }
 
@@ -90,14 +100,6 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
 
         Ok(Some(ws))
     }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
-            info!("({fin}) {}", String::from_utf8_lossy(data));
-        }
-        Ok(())
-    }
 }
 
 struct TickerEndpoint {
@@ -114,6 +116,14 @@ impl TickerEndpoint {
             connection_info,
             instrument,
         }
+    }
+
+    #[inline]
+    fn poll(&mut self, ws: &mut TlsWebsocket<<Self as TlsWebsocketEndpoint>::Stream>) -> io::Result<()> {
+        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
+            info!("({fin}) {}", String::from_utf8_lossy(data));
+        }
+        Ok(())
     }
 }
 
@@ -141,14 +151,6 @@ impl TlsWebsocketEndpoint for TickerEndpoint {
 
         Ok(Some(ws))
     }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
-            info!("({fin}) {}", String::from_utf8_lossy(data));
-        }
-        Ok(())
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -163,6 +165,6 @@ fn main() -> anyhow::Result<()> {
     io_service.register(trade);
 
     loop {
-        io_service.poll()?;
+        io_service.poll(|ws, endpoint| endpoint.poll(ws))?;
     }
 }

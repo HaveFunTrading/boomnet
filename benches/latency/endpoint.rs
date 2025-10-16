@@ -45,8 +45,21 @@ impl EndpointWithContext<TestContext> for TestEndpoint {
             .into_websocket("/");
         Ok(Some(ws))
     }
+}
 
-    fn poll(&mut self, ws: &mut Self::Target, ctx: &mut TestContext) -> std::io::Result<()> {
+impl TestEndpoint {
+    pub fn new(port: u16, payload: &'static str) -> Self {
+        Self {
+            connection_info: ConnectionInfo::new("127.0.0.1", port),
+            payload,
+        }
+    }
+
+    pub fn poll(
+        &mut self,
+        ws: &mut <Self as EndpointWithContext<TestContext>>::Target,
+        ctx: &mut TestContext,
+    ) -> std::io::Result<()> {
         if ctx.wants_write {
             ws.send_text(true, Some(self.payload.as_bytes()))?;
             ctx.wants_write = false;
@@ -57,14 +70,5 @@ impl EndpointWithContext<TestContext> for TestEndpoint {
             }
         }
         Ok(())
-    }
-}
-
-impl TestEndpoint {
-    pub fn new(port: u16, payload: &'static str) -> Self {
-        Self {
-            connection_info: ConnectionInfo::new("127.0.0.1", port),
-            payload,
-        }
     }
 }

@@ -30,6 +30,23 @@ impl TradeEndpoint {
             next_disconnect_time_ns: ctx.current_time_ns() + Duration::from_secs(10).as_nanos() as u64,
         }
     }
+
+    #[inline]
+    fn poll(
+        &mut self,
+        ws: &mut TlsWebsocket<<Self as TlsWebsocketEndpointWithContext<FeedContext>>::Stream>,
+        ctx: &mut FeedContext,
+    ) -> io::Result<()> {
+        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
+            info!("({fin}) {}", String::from_utf8_lossy(data));
+        }
+        let now_ns = ctx.current_time_ns();
+        if now_ns > self.next_disconnect_time_ns {
+            self.next_disconnect_time_ns = now_ns + Duration::from_secs(10).as_nanos() as u64;
+            return Err(io::Error::other("disconnected due to timer"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -75,19 +92,6 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
 
         Ok(Some(ws))
     }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, ctx: &mut FeedContext) -> io::Result<()> {
-        while let Some(Ok(WebsocketFrame::Text(fin, data))) = ws.receive_next() {
-            info!("({fin}) {}", String::from_utf8_lossy(data));
-        }
-        let now_ns = ctx.current_time_ns();
-        if now_ns > self.next_disconnect_time_ns {
-            self.next_disconnect_time_ns = now_ns + Duration::from_secs(10).as_nanos() as u64;
-            return Err(io::Error::other("disconnected due to timer"));
-        }
-        Ok(())
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -95,13 +99,12 @@ fn main() -> anyhow::Result<()> {
 
     let mut ctx = FeedContext::new();
 
-    let mut io_service = MioSelector::new()?.into_io_service_with_context(&mut ctx);
+    let mut io_service = MioSelector::new()?.into_io_service_with_context();
 
     let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", "btcusdt", &ctx);
 
     io_service.register(endpoint_btc)?;
-
     loop {
-        io_service.poll(&mut ctx)?;
+        io_service.poll(&mut ctx, |ws, ctx, endpoint| endpoint.poll(ws, ctx))?;
     }
 }

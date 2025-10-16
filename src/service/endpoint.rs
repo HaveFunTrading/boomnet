@@ -16,8 +16,8 @@ pub trait Endpoint: ConnectionInfoProvider {
     /// await the next connection attempt with (possibly) different `addr`.
     fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>>;
 
-    /// Called by the `IOService` on each duty cycle.
-    fn poll(&mut self, target: &mut Self::Target) -> io::Result<()>;
+    // /// Called by the `IOService` on each duty cycle.
+    // fn poll(&mut self, target: &mut Self::Target) -> io::Result<()>;
 
     /// Upon disconnection `IOService` will query the endpoint if the connection can be
     /// recreated, passing the disconnect `reason`. If not, it will cause program to panic.
@@ -47,9 +47,6 @@ pub trait EndpointWithContext<C>: ConnectionInfoProvider {
     /// user provided `Context`. If the endpoint does not want to connect at this stage it should
     /// return `Ok(None)` and await the next connection attempt with (possibly) different `addr`.
     fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Option<Self::Target>>;
-
-    /// Called by the `IOService` on each duty cycle passing user provided `Context`.
-    fn poll(&mut self, target: &mut Self::Target, context: &mut C) -> io::Result<()>;
 
     /// Upon disconnection `IOService` will query the endpoint if the connection can be
     /// recreated, passing the disconnect `reason`. If not, it will cause program to panic.
@@ -116,8 +113,6 @@ pub mod ws {
 
         fn create_websocket(&mut self, addr: SocketAddr) -> io::Result<Option<Websocket<TlsStream<Self::Stream>>>>;
 
-        fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>) -> io::Result<()>;
-
         fn can_recreate(&mut self, _reason: DisconnectReason) -> bool {
             true
         }
@@ -136,11 +131,6 @@ pub mod ws {
         #[inline]
         fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
             self.create_websocket(addr)
-        }
-
-        #[inline]
-        fn poll(&mut self, target: &mut Self::Target) -> io::Result<()> {
-            self.poll(target)
         }
 
         #[inline]
@@ -163,8 +153,6 @@ pub mod ws {
             ctx: &mut C,
         ) -> io::Result<Option<Websocket<TlsStream<Self::Stream>>>>;
 
-        fn poll(&mut self, ws: &mut Websocket<TlsStream<Self::Stream>>, ctx: &mut C) -> io::Result<()>;
-
         fn can_recreate(&mut self, _reason: DisconnectReason, _ctx: &mut C) -> bool {
             true
         }
@@ -183,11 +171,6 @@ pub mod ws {
         #[inline]
         fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Option<Self::Target>> {
             self.create_websocket(addr, context)
-        }
-
-        #[inline]
-        fn poll(&mut self, target: &mut Self::Target, context: &mut C) -> io::Result<()> {
-            self.poll(target, context)
         }
 
         #[inline]

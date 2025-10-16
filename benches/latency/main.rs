@@ -62,13 +62,15 @@ fn boomnet_rtt_benchmark_io_service(c: &mut Criterion) {
 
     // setup io service
     let mut ctx = TestContext::new();
-    let mut io_service = DirectSelector::new().unwrap().into_io_service_with_context(&mut ctx);
+    let mut io_service = DirectSelector::new().unwrap().into_io_service_with_context();
     io_service.register(TestEndpoint::new(9003, MSG)).unwrap();
 
     group.bench_function("boomnet_rtt_io_service", |b| {
         b.iter(|| {
             loop {
-                io_service.poll(&mut ctx).unwrap();
+                io_service
+                    .poll(&mut ctx, |ws, ctx, endpoint| endpoint.poll(ws, ctx))
+                    .unwrap();
                 if ctx.processed == 100 {
                     ctx.wants_write = true;
                     ctx.processed = 0;

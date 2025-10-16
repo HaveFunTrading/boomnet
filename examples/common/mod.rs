@@ -61,6 +61,44 @@ impl TradeEndpoint {
         )?;
         Ok(())
     }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub fn poll(&mut self, ws: &mut TlsWebsocket<<Self as TlsWebsocketEndpoint>::Stream>) -> io::Result<()> {
+        for frame in ws.read_batch()? {
+            if let WebsocketFrame::Text(fin, data) = frame? {
+                match self.id % 4 {
+                    0 => info!("({fin}) {}", Red.paint(String::from_utf8_lossy(data))),
+                    1 => info!("({fin}) {}", Green.paint(String::from_utf8_lossy(data))),
+                    2 => info!("({fin}) {}", Purple.paint(String::from_utf8_lossy(data))),
+                    3 => info!("({fin}) {}", Yellow.paint(String::from_utf8_lossy(data))),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub fn poll_ctx(
+        &mut self,
+        ws: &mut TlsWebsocket<<Self as TlsWebsocketEndpoint>::Stream>,
+        _ctx: &mut FeedContext,
+    ) -> io::Result<()> {
+        for frame in ws.read_batch()? {
+            if let WebsocketFrame::Text(fin, data) = frame? {
+                match self.id % 4 {
+                    0 => info!("({fin}) {}", Red.paint(String::from_utf8_lossy(data))),
+                    1 => info!("({fin}) {}", Green.paint(String::from_utf8_lossy(data))),
+                    2 => info!("({fin}) {}", Purple.paint(String::from_utf8_lossy(data))),
+                    3 => info!("({fin}) {}", Yellow.paint(String::from_utf8_lossy(data))),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl ConnectionInfoProvider for TradeEndpoint {
@@ -83,22 +121,6 @@ impl TlsWebsocketEndpoint for TradeEndpoint {
         }
 
         Ok(Some(ws))
-    }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>) -> io::Result<()> {
-        for frame in ws.read_batch()? {
-            if let WebsocketFrame::Text(fin, data) = frame? {
-                match self.id % 4 {
-                    0 => info!("({fin}) {}", Red.paint(String::from_utf8_lossy(data))),
-                    1 => info!("({fin}) {}", Green.paint(String::from_utf8_lossy(data))),
-                    2 => info!("({fin}) {}", Purple.paint(String::from_utf8_lossy(data))),
-                    3 => info!("({fin}) {}", Yellow.paint(String::from_utf8_lossy(data))),
-                    _ => {}
-                }
-            }
-        }
-        Ok(())
     }
 
     fn can_recreate(&mut self, reason: DisconnectReason) -> bool {
@@ -124,21 +146,5 @@ impl TlsWebsocketEndpointWithContext<FeedContext> for TradeEndpoint {
         }
 
         Ok(Some(ws))
-    }
-
-    #[inline]
-    fn poll(&mut self, ws: &mut TlsWebsocket<Self::Stream>, _ctx: &mut FeedContext) -> io::Result<()> {
-        for frame in ws.read_batch()? {
-            if let WebsocketFrame::Text(fin, data) = frame? {
-                match self.id % 4 {
-                    0 => info!("({fin}) {}", Red.paint(String::from_utf8_lossy(data))),
-                    1 => info!("({fin}) {}", Green.paint(String::from_utf8_lossy(data))),
-                    2 => info!("({fin}) {}", Purple.paint(String::from_utf8_lossy(data))),
-                    3 => info!("({fin}) {}", Yellow.paint(String::from_utf8_lossy(data))),
-                    _ => {}
-                }
-            }
-        }
-        Ok(())
     }
 }

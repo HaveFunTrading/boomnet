@@ -264,7 +264,8 @@ where
 {
     /// This method polls all registered endpoints for readiness and performs I/O operations based
     /// on the ['Selector'] poll results. It then iterates through all endpoints, either
-    /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
+    /// updating existing streams or creating and registering new ones. If there's pending IO on the stream,
+    /// the provided `action` closure will be invoked. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
     pub fn poll<F>(&mut self, mut action: F) -> io::Result<()>
     where
@@ -358,7 +359,8 @@ where
 {
     /// This method polls all registered endpoints for readiness passing the [`Context`] and performs I/O operations based
     /// on the `SelectService` poll results. It then iterates through all endpoints, either
-    /// updating existing streams or creating and registering new ones. It uses [`Endpoint::can_recreate`]
+    /// updating existing streams or creating and registering new ones. If there's pending IO on the stream,
+    /// the provided `action` closure will be invoked. It uses [`Endpoint::can_recreate`]
     /// to determine if the error that occurred during polling is recoverable (typically due to remote peer disconnect).
     pub fn poll<F>(&mut self, ctx: &mut C, mut action: F) -> io::Result<()>
     where

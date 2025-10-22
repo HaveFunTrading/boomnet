@@ -130,13 +130,30 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
         }
     }
 
-    /// Registers a new [`Endpoint`] with the service and return a handle to it.
+    /// Register a new [`Endpoint`] with the service and return a handle to the created endpoint.
     pub fn register(&mut self, endpoint: E) -> io::Result<Handle>
     where
         E: ConnectionInfoProvider,
         TS: TimeSource,
     {
         let handle = Handle(self.selector.next_token());
+        let info = endpoint.connection_info();
+        let query = self.dns_resolver.new_query(info.host(), info.port())?;
+        let now = self.time_source.current_time_nanos();
+        self.pending_endpoints.push_back((handle, query, now, endpoint));
+        Ok(handle)
+    }
+
+    /// Register a new [`Endpoint`] with the service using provided factory and return a handle to
+    /// the created endpoint.
+    pub fn register_with_factory<F>(&mut self, endpoint_factory: F) -> io::Result<Handle>
+    where
+        E: ConnectionInfoProvider,
+        TS: TimeSource,
+        F: FnOnce(Handle) -> io::Result<E>,
+    {
+        let handle = Handle(self.selector.next_token());
+        let endpoint = endpoint_factory(handle)?;
         let info = endpoint.connection_info();
         let query = self.dns_resolver.new_query(info.host(), info.port())?;
         let now = self.time_source.current_time_nanos();

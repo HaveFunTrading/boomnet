@@ -96,14 +96,14 @@ impl<'a> Headers<'a> {
 }
 
 /// A generic HTTP client that uses a pooled connection strategy.
-pub struct HttpClient<C: ConnectionPool> {
+pub struct HttpClient<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize = 1024> {
     connection_pool: Rc<RefCell<C>>,
     headers: Headers<'static>,
 }
 
-impl<C: ConnectionPool> HttpClient<C> {
+impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK_SIZE> {
     /// Create a new HTTP client from the provided pool.
-    pub fn new(connection_pool: C) -> HttpClient<C> {
+    pub fn new(connection_pool: C) -> HttpClient<C, CHUNK_SIZE> {
         Self {
             connection_pool: Rc::new(RefCell::new(connection_pool)),
             headers: Headers {
@@ -138,7 +138,7 @@ impl<C: ConnectionPool> HttpClient<C> {
         path: impl AsRef<str>,
         body: Option<&[u8]>,
         builder: F,
-    ) -> io::Result<HttpRequest<C>>
+    ) -> io::Result<HttpRequest<C, CHUNK_SIZE>>
     where
         F: FnOnce(&mut Headers),
     {
@@ -173,18 +173,21 @@ impl<C: ConnectionPool> HttpClient<C> {
         method: Method,
         path: impl AsRef<str>,
         body: Option<&[u8]>,
-    ) -> io::Result<HttpRequest<C>> {
+    ) -> io::Result<HttpRequest<C, CHUNK_SIZE>> {
         self.new_request_with_headers(method, path, body, |_| {})
     }
 }
 
 /// Trait defining a pool of reusable connections.
-pub trait ConnectionPool: Sized {
+pub trait ConnectionPool<const CHUNK_SIZE: usize = 1024>: Sized {
     /// Underlying stream type.
     type Stream: Read + Write;
 
     /// Turn this connection pool into http client.
-    fn into_http_client(self) -> HttpClient<Self> {
+    fn into_http_client(self) -> HttpClient<Self, CHUNK_SIZE>
+    where
+        Self: ConnectionPool<CHUNK_SIZE>,
+    {
         HttpClient::new(self)
     }
 
@@ -192,10 +195,10 @@ pub trait ConnectionPool: Sized {
     fn host(&self) -> &str;
 
     /// Acquire next free connection, if available.
-    fn acquire(&mut self) -> io::Result<Option<Connection<Self::Stream>>>;
+    fn acquire(&mut self) -> io::Result<Option<Connection<Self::Stream, CHUNK_SIZE>>>;
 
     /// Release a connection back into the pool.
-    fn release(&mut self, stream: Option<Connection<Self::Stream>>);
+    fn release(&mut self, stream: Option<Connection<Self::Stream, CHUNK_SIZE>>);
 }
 
 /// A single-connection pool over TLS, reconnecting on demand.
@@ -258,8 +261,8 @@ impl ConnectionPool for SingleTlsConnectionPool {
 }
 
 /// Represents an in-flight HTTP exchange.
-pub struct HttpRequest<C: ConnectionPool> {
-    conn: Option<Connection<C::Stream>>,
+pub struct HttpRequest<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize = 1024> {
+    conn: Option<Connection<C::Stream, CHUNK_SIZE>>,
     pool: Rc<RefCell<C>>,
     state: State,
 }
@@ -278,15 +281,15 @@ enum State {
     },
 }
 
-impl<C: ConnectionPool> HttpRequest<C> {
+impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUNK_SIZE> {
     fn new(
         method: Method,
         path: impl AsRef<str>,
         body: Option<&[u8]>,
         headers: &Headers,
-        mut conn: Connection<C::Stream>,
+        mut conn: Connection<C::Stream, CHUNK_SIZE>,
         pool: Rc<RefCell<C>>,
-    ) -> io::Result<HttpRequest<C>> {
+    ) -> io::Result<HttpRequest<C, CHUNK_SIZE>> {
         conn.write_all(method.as_str().as_bytes())?;
         conn.write_all(b" ")?;
         conn.write_all(path.as_ref().as_bytes())?;
@@ -440,7 +443,7 @@ impl<C: ConnectionPool> HttpRequest<C> {
     }
 }
 
-impl<C: ConnectionPool> Drop for HttpRequest<C> {
+impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> Drop for HttpRequest<C, CHUNK_SIZE> {
     fn drop(&mut self) {
         if let Some(conn) = self.conn.as_mut() {
             conn.buffer.clear();
@@ -480,7 +483,7 @@ impl<S: Read + Write, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
     }
 }
 
-impl<S: Write> Write for Connection<S> {
+impl<S: Write, const CHUNK_SIZE: usize> Write for Connection<S, CHUNK_SIZE> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.stream.write(buf)
@@ -494,13 +497,18 @@ impl<S: Write> Write for Connection<S> {
 
 impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
     #[inline]
-    fn new(stream: S) -> Self {
+    pub fn new(stream: S) -> Self {
         Self {
             stream,
             buffer: Vec::with_capacity(CHUNK_SIZE),
             disconnected: false,
             header_finder: Finder::new(b"\r\n\r\n"),
         }
+    }
+
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        self.disconnected
     }
 }
 

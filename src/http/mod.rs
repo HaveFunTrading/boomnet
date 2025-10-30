@@ -40,6 +40,10 @@ use std::rc::Rc;
 pub use http::Method;
 use smallvec::SmallVec;
 
+/// Default capacity of the buffer when reading chunks of bytes from the stream  
+/// On OSX if chunk_size > bytes_available_on_stream, the read operation will block
+pub(crate) const DEFAULT_CHUNK_SIZE: usize = 1024;
+
 type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
 
 /// Re-usable container to store headers
@@ -96,7 +100,7 @@ impl<'a> Headers<'a> {
 }
 
 /// A generic HTTP client that uses a pooled connection strategy.
-pub struct HttpClient<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize = 1024> {
+pub struct HttpClient<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE> {
     connection_pool: Rc<RefCell<C>>,
     headers: Headers<'static>,
 }
@@ -179,7 +183,7 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK
 }
 
 /// Trait defining a pool of reusable connections.
-pub trait ConnectionPool<const CHUNK_SIZE: usize = 1024>: Sized {
+pub trait ConnectionPool<const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE>: Sized {
     /// Underlying stream type.
     type Stream: Read + Write;
 
@@ -261,7 +265,7 @@ impl ConnectionPool for SingleTlsConnectionPool {
 }
 
 /// Represents an in-flight HTTP exchange.
-pub struct HttpRequest<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize = 1024> {
+pub struct HttpRequest<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE> {
     conn: Option<Connection<C::Stream, CHUNK_SIZE>>,
     pool: Rc<RefCell<C>>,
     state: State,
@@ -454,7 +458,7 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> Drop for HttpReques
 
 /// Connection managed by the `ConnectionPool`. Binds underlying stream together with buffer used
 /// for reading data. The reading is performed in chunks with default size of 1024 bytes.
-pub struct Connection<S, const CHUNK_SIZE: usize = 1024> {
+pub struct Connection<S, const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE> {
     stream: S,
     buffer: Vec<u8>,
     disconnected: bool,
@@ -496,6 +500,24 @@ impl<S: Write, const CHUNK_SIZE: usize> Write for Connection<S, CHUNK_SIZE> {
 }
 
 impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
+    /// Creates a new connection wrapper around the provided stream.
+    ///
+    /// Initializes a read buffer with capacity equal to `CHUNK_SIZE` and sets up
+    /// the HTTP header boundary finder for parsing responses.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream` - The underlying I/O stream to wrap
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use boomnet::http::Connection;
+    /// use boomnet::stream::tcp::TcpStream;
+    ///
+    /// let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap();
+    /// let connection = Connection::new(tcp_stream);
+    /// ```
     #[inline]
     pub fn new(stream: S) -> Self {
         Self {
@@ -506,8 +528,9 @@ impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
         }
     }
 
+    /// Returns whether the connection has been marked as disconnected.
     #[inline]
-    pub fn is_disconnected(&self) -> bool {
+    pub const fn is_disconnected(&self) -> bool {
         self.disconnected
     }
 }

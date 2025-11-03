@@ -42,7 +42,7 @@ use smallvec::SmallVec;
 
 /// Default capacity of the buffer when reading chunks of bytes from the stream  
 /// On OSX if chunk_size > bytes_available_on_stream, the read operation will block
-pub(crate) const DEFAULT_CHUNK_SIZE: usize = 1024;
+pub const DEFAULT_CHUNK_SIZE: usize = 1024;
 
 type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
 
@@ -515,8 +515,8 @@ impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
     /// use boomnet::http::Connection;
     /// use boomnet::stream::tcp::TcpStream;
     ///
-    /// let tls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap();
-    /// let connection = Connection::new(tcp_stream);
+    /// let tcp = TcpStream::try_from(("127.0.0.1", 4222)).unwrap();
+    /// let connection = Connection::<_, 1024>::new(tcp);
     /// ```
     #[inline]
     pub fn new(stream: S) -> Self {

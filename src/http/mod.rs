@@ -40,8 +40,7 @@ use std::rc::Rc;
 pub use http::Method;
 use smallvec::SmallVec;
 
-/// Default capacity of the buffer when reading chunks of bytes from the stream  
-/// On OSX if chunk_size > bytes_available_on_stream, the read operation will block
+/// Default capacity of the buffer when reading chunks of bytes from the stream.
 pub const DEFAULT_CHUNK_SIZE: usize = 1024;
 
 type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
@@ -55,7 +54,7 @@ pub struct Headers<'a> {
 impl<'a> Index<&'a str> for Headers<'a> {
     type Output = &'a str;
 
-    // Look up the first* matching header
+    // Look up the first matching header
     // panics if not found
     fn index(&self, key: &'a str) -> &Self::Output {
         for pair in &self.inner {
@@ -82,16 +81,19 @@ impl<'a> Headers<'a> {
         self.inner.push((key, value));
     }
 
+    /// Returns `true` if no headers are present.
     #[inline]
     fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
+    /// Returns iterator over the headers.
     #[inline]
     fn iter(&self) -> impl Iterator<Item = &(&str, &str)> {
         self.inner.iter()
     }
 
+    /// Clear all headers.
     #[inline]
     fn clear(&mut self) -> &mut Self {
         self.inner.clear();

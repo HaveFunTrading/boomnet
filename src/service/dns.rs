@@ -281,7 +281,7 @@ impl DnsQuery for AsyncDnsQuery {
                 self.addrs = Some(res.addrs);
                 Ok(self.addrs.as_ref().unwrap().clone())
             }
-            Err(TryRecvError::Empty) => Err(io::Error::new(ErrorKind::WouldBlock, "try again")),
+            Err(TryRecvError::Empty) => Err(ErrorKind::WouldBlock.into()),
             Err(TryRecvError::Disconnected) => Err(io::Error::other("channel disconnected")),
         }
     }

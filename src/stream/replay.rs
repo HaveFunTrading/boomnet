@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io;
-use std::io::{BufReader, Read, Write};
+use std::io::{BufReader, ErrorKind, Read, Write};
 use std::path::Path;
 
 type Sequence = u64;
@@ -55,7 +55,7 @@ impl<S: Read> Read for ReplayStream<S> {
         self.seq += 1;
         let read = *self.bytes_read.get(&seq).unwrap_or(&0);
         if read == 0 {
-            return Err(io::Error::new(io::ErrorKind::WouldBlock, ""));
+            return Err(ErrorKind::WouldBlock.into());
         }
 
         // keep reading until we have required number of bytes at that sequence

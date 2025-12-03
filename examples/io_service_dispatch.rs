@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
             endpoint.subscribe(ws)?;
             Ok(())
         })?;
-        if success {
+        if success.is_some() {
             break;
         } else {
             io_service.poll(|ws, endpoint| endpoint.poll(ws))?;

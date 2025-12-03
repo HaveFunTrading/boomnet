@@ -349,19 +349,19 @@ where
     }
 
     /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
-    /// endpoint is currently active `true` will be returned and the provided `action` invoked,
-    /// otherwise this method will return `false` and no `action` will be invoked.
-    pub fn dispatch<F>(&mut self, handle: Handle, mut action: F) -> io::Result<bool>
+    /// endpoint is currently active `Ok(Some(...))` will be returned and the provided `action` invoked,
+    /// otherwise this method will return `Ok(None)` and no `action` will be invoked.
+    pub fn dispatch<F, T>(&mut self, handle: Handle, mut action: F) -> io::Result<Option<T>>
     where
-        F: FnMut(&mut E::Target, &mut E) -> std::io::Result<()>,
+        F: FnMut(&mut E::Target, &mut E) -> std::io::Result<T>,
     {
         match self.io_nodes.get_mut(&handle.0) {
             Some(io_node) => {
                 let (stream, (_, endpoint)) = io_node.as_parts_mut();
-                action(stream, endpoint)?;
-                Ok(true)
+                let result = action(stream, endpoint)?;
+                Ok(Some(result))
             }
-            None => Ok(false),
+            None => Ok(None),
         }
     }
 }
@@ -444,20 +444,20 @@ where
     }
 
     /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
-    /// endpoint is currently active `true` will be returned and the provided `action` invoked,
-    /// otherwise this method will return `false` and no `action` will be invoked. This method
+    /// endpoint is currently active `Ok(Some(...))` will be returned and the provided `action` invoked,
+    /// otherwise this method will return `Ok(None)` and no `action` will be invoked. This method
     /// requires `Context` to be passed and exposes it to the provided `action`.
-    pub fn dispatch<F>(&mut self, handle: Handle, ctx: &mut C, mut action: F) -> io::Result<bool>
+    pub fn dispatch<F, T>(&mut self, handle: Handle, ctx: &mut C, mut action: F) -> io::Result<Option<T>>
     where
-        F: FnMut(&mut E::Target, &mut E, &mut C) -> std::io::Result<()>,
+        F: FnMut(&mut E::Target, &mut E, &mut C) -> std::io::Result<T>,
     {
         match self.io_nodes.get_mut(&handle.0) {
             Some(io_node) => {
                 let (stream, (_, endpoint)) = io_node.as_parts_mut();
-                action(stream, endpoint, ctx)?;
-                Ok(true)
+                let result = action(stream, endpoint, ctx)?;
+                Ok(Some(result))
             }
-            None => Ok(false),
+            None => Ok(None),
         }
     }
 }

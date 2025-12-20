@@ -18,6 +18,8 @@ pub mod replay;
 pub mod tcp;
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 pub mod tls;
+#[cfg(feature = "ktls")]
+pub mod ktls;
 
 #[cfg(target_os = "linux")]
 const EINPROGRESS: i32 = 115;

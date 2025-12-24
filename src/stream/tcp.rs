@@ -5,12 +5,19 @@ use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::os::fd::{AsRawFd, RawFd};
 
 /// Wraps `std::net::TcpStream` and provides `ConnectionInfo`.
 #[derive(Debug)]
 pub struct TcpStream {
     inner: std::net::TcpStream,
     connection_info: ConnectionInfo,
+}
+
+impl AsRawFd for TcpStream {
+    fn as_raw_fd(&self) -> RawFd {
+        self.inner.as_raw_fd()
+    }
 }
 
 impl From<TcpStream> for std::net::TcpStream {

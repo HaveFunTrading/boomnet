@@ -30,16 +30,16 @@ use std::ptr::slice_from_raw_parts;
 ///
 /// let ktls_stream = TcpStream::try_from(("fstream.binance.com", 443)).unwrap().into_ktls_stream().unwrap();
 /// ```
-pub struct KtlStream<S> {
+pub struct KtlsStream<S> {
     stream: S,
     ssl: openssl::ssl::Ssl,
     state: State,
     buffer: Vec<u8>,
 }
 
-impl<S> KtlStream<S> {
+impl<S> KtlsStream<S> {
     /// Create KTLS from underlying stream using default [`TlsConfig`].
-    pub fn new(stream: S, server_name: impl AsRef<str>) -> io::Result<KtlStream<S>>
+    pub fn new(stream: S, server_name: impl AsRef<str>) -> io::Result<KtlsStream<S>>
     where
         S: AsRawFd,
     {
@@ -48,7 +48,7 @@ impl<S> KtlStream<S> {
 
     /// Create KTLS from underlying stream. This method also requires an action used
     /// further configure [`TlsConfig`].
-    pub fn new_with_config<F>(stream: S, server_name: impl AsRef<str>, configure: F) -> io::Result<KtlStream<S>>
+    pub fn new_with_config<F>(stream: S, server_name: impl AsRef<str>, configure: F) -> io::Result<KtlsStream<S>>
     where
         S: AsRawFd,
         F: FnOnce(&mut TlsConfig),
@@ -64,7 +64,7 @@ impl<S> KtlStream<S> {
         let config = tls_config.into_openssl().build().configure()?;
         let ssl = config.into_ssl(server_name.as_ref())?;
 
-        Ok(KtlStream {
+        Ok(KtlsStream {
             stream,
             ssl,
             state: State::Connecting,
@@ -143,13 +143,13 @@ enum State {
     Ready,
 }
 
-impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlStream<S> {
+impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlsStream<S> {
     fn connection_info(&self) -> &ConnectionInfo {
         self.stream.connection_info()
     }
 }
 
-impl<S: AsRawFd> Read for KtlStream<S> {
+impl<S: AsRawFd> Read for KtlsStream<S> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self.state {
             State::Connecting => {
@@ -201,7 +201,7 @@ impl<S: AsRawFd> Read for KtlStream<S> {
     }
 }
 
-impl<S: Write> Write for KtlStream<S> {
+impl<S: Write> Write for KtlsStream<S> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self.state {
@@ -228,7 +228,7 @@ impl<S: Write> Write for KtlStream<S> {
     }
 }
 
-impl<S: Selectable> Selectable for KtlStream<S> {
+impl<S: Selectable> Selectable for KtlsStream<S> {
     #[inline]
     fn connected(&mut self) -> io::Result<bool> {
         self.stream.connected()
@@ -246,7 +246,7 @@ impl<S: Selectable> Selectable for KtlStream<S> {
 }
 
 #[cfg(feature = "mio")]
-impl<S: Source> Source for KtlStream<S> {
+impl<S: Source> Source for KtlsStream<S> {
     #[inline]
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
         registry.register(&mut self.stream, token, interests)
@@ -263,9 +263,9 @@ impl<S: Source> Source for KtlStream<S> {
     }
 }
 
-/// Trait to convert underlying stream into [`KtlStream`].
+/// Trait to convert underlying stream into [`KtlsStream`].
 pub trait IntoKtlsStream {
-    /// Convert underlying stream into [`KtlStream`] with default tls config.
+    /// Convert underlying stream into [`KtlsStream`] with default tls config.
     ///
     /// ## Examples
     /// ```no_run
@@ -274,14 +274,14 @@ pub trait IntoKtlsStream {
     ///
     /// let ktls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_ktls_stream().unwrap();
     /// ```
-    fn into_ktls_stream(self) -> io::Result<KtlStream<Self>>
+    fn into_ktls_stream(self) -> io::Result<KtlsStream<Self>>
     where
         Self: Sized,
     {
         self.into_ktls_stream_with_config(|_| ())
     }
 
-    /// Convert underlying stream into [`KtlStream`] and use provided action to modify tls config.
+    /// Convert underlying stream into [`KtlsStream`] and use provided action to modify tls config.
     ///
     /// ## Examples
     /// ```no_run
@@ -291,7 +291,7 @@ pub trait IntoKtlsStream {
     ///
     /// let ktls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_ktls_stream_with_config(|cfg| cfg.with_no_cert_verification()).unwrap();
     /// ```
-    fn into_ktls_stream_with_config<F>(self, builder: F) -> io::Result<KtlStream<Self>>
+    fn into_ktls_stream_with_config<F>(self, builder: F) -> io::Result<KtlsStream<Self>>
     where
         Self: Sized,
         F: FnOnce(&mut TlsConfig);
@@ -301,13 +301,13 @@ impl<T> IntoKtlsStream for T
 where
     T: Read + Write + AsRawFd + ConnectionInfoProvider,
 {
-    fn into_ktls_stream_with_config<F>(self, builder: F) -> io::Result<KtlStream<Self>>
+    fn into_ktls_stream_with_config<F>(self, builder: F) -> io::Result<KtlsStream<Self>>
     where
         Self: Sized,
         F: FnOnce(&mut TlsConfig),
     {
         let server_name = SmallString::<[u8; 1024]>::from(self.connection_info().host());
-        KtlStream::new_with_config(self, server_name, builder)
+        KtlsStream::new_with_config(self, server_name, builder)
     }
 }
 

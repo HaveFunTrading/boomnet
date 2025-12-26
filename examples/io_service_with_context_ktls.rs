@@ -4,7 +4,7 @@ mod deps {
     pub use boomnet::service::endpoint::{DisconnectReason, Endpoint};
     pub use boomnet::service::select::Selectable;
     pub use boomnet::service::select::mio::MioSelector;
-    pub use boomnet::stream::ktls::{IntoKtlsStream, KtlStream};
+    pub use boomnet::stream::ktls::{IntoKtlsStream, KtlsStream};
     pub use boomnet::stream::mio::{IntoMioStream, MioStream};
     pub use boomnet::stream::tcp::TcpStream;
     pub use boomnet::stream::tls::TlsConfigExt;
@@ -35,7 +35,7 @@ impl TradeConnectionFactory {
 
 #[cfg(feature = "ktls")]
 struct TradeConnection {
-    ws: Websocket<KtlStream<MioStream>>,
+    ws: Websocket<KtlsStream<MioStream>>,
 }
 
 #[cfg(feature = "ktls")]

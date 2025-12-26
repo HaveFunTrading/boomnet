@@ -1,33 +1,64 @@
+use crate::stream::ktls::net::peer_addr;
+use crate::stream::tls::TlsConfig;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
-use foreign_types_shared::ForeignType;
-use openssl::ssl::ErrorCode;
-use std::ffi::c_int;
+pub use error::Error;
+use foreign_types::ForeignType;
+use openssl::ssl::{ErrorCode, SslOptions};
+use smallstr::SmallString;
 use std::io;
 use std::io::{ErrorKind, Read, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, BorrowedFd};
+use std::ptr::slice_from_raw_parts;
 
-const BIO_NOCLOSE: c_int = 0x00;
-
-pub struct KtlSteam<S> {
+pub struct KtlStream<S> {
     _stream: S,
     ssl: openssl::ssl::Ssl,
+    state: State,
+    buffer: Vec<u8>,
 }
 
-impl<S> KtlSteam<S> {
-    /// Create a new SslStream from a tcp stream and SSL object.
-    pub fn new(stream: S, ssl: openssl::ssl::Ssl) -> Self
+impl<S> KtlStream<S> {
+    pub fn new(stream: S, server_name: impl AsRef<str>) -> io::Result<KtlStream<S>>
     where
         S: AsRawFd,
     {
-        let sock_bio = unsafe { openssl_sys::BIO_new_socket(stream.as_raw_fd(), BIO_NOCLOSE) };
-        assert!(!sock_bio.is_null(), "Failed to create socket BIO");
-        unsafe {
-            openssl_sys::SSL_set_bio(ssl.as_ptr(), sock_bio, sock_bio);
-        }
-        KtlSteam { _stream: stream, ssl }
+        Self::new_with_config(stream, server_name, |_| ())
     }
 
-    pub fn connect(&self) -> Result<(), error::Error> {
+    pub fn new_with_config<F>(stream: S, server_name: impl AsRef<str>, configure: F) -> io::Result<KtlStream<S>>
+    where
+        S: AsRawFd,
+        F: FnOnce(&mut TlsConfig),
+    {
+        const SSL_OP_ENABLE_KTLS: SslOptions = SslOptions::from_bits_retain(ffi::SSL_OP_ENABLE_KTLS);
+
+        // configure SSL context
+        let mut builder = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
+        builder.set_options(SSL_OP_ENABLE_KTLS);
+
+        let mut tls_config = builder.into();
+        configure(&mut tls_config);
+
+        let config = tls_config.into_openssl().build().configure()?;
+        let ssl = config.into_ssl(server_name.as_ref())?;
+
+        Ok(KtlStream {
+            _stream: stream,
+            ssl,
+            state: State::Connecting,
+            buffer: Vec::with_capacity(4096),
+        })
+    }
+
+    fn connected(&self) -> io::Result<bool>
+    where
+        S: AsRawFd,
+    {
+        let fd = unsafe { BorrowedFd::borrow_raw(self._stream.as_raw_fd()) };
+        Ok(peer_addr(fd)?.is_some())
+    }
+
+    fn ssl_connect(&self) -> Result<(), error::Error> {
         let result = unsafe { openssl_sys::SSL_connect(self.ssl.as_ptr()) };
         if result <= 0 {
             Err(error::Error::make(result, &self.ssl))
@@ -36,26 +67,14 @@ impl<S> KtlSteam<S> {
         }
     }
 
-    pub fn blocking_connect(&self) -> io::Result<()> {
-        loop {
-            match self.connect() {
-                Ok(_) => break,
-                Err(err) if err.code() == ErrorCode::WANT_READ => {}
-                Err(err) if err.code() == ErrorCode::WANT_WRITE => {}
-                Err(err) => return Err(io::Error::other(err)),
-            }
-        }
-        Ok(())
-    }
-
-    pub fn ktls_send_enabled(&self) -> bool {
+    fn ktls_send_enabled(&self) -> bool {
         unsafe {
             let wbio = openssl_sys::SSL_get_wbio(self.ssl.as_ptr());
             ffi::BIO_get_ktls_send(wbio) != 0
         }
     }
 
-    pub fn ktls_recv_enabled(&self) -> bool {
+    fn ktls_recv_enabled(&self) -> bool {
         unsafe {
             let rbio = openssl_sys::SSL_get_rbio(self.ssl.as_ptr());
             ffi::BIO_get_ktls_recv(rbio) != 0
@@ -63,7 +82,7 @@ impl<S> KtlSteam<S> {
     }
 
     #[inline]
-    pub fn ssl_read(&mut self, buf: &mut [u8]) -> Result<usize, error::Error> {
+    fn ssl_read(&mut self, buf: &mut [u8]) -> Result<usize, error::Error> {
         unsafe {
             let len =
                 openssl_sys::SSL_read(self.ssl.as_ptr(), buf.as_mut_ptr() as *mut _, buf.len().try_into().unwrap());
@@ -76,7 +95,7 @@ impl<S> KtlSteam<S> {
     }
 
     #[inline]
-    pub fn ssl_write(&mut self, buf: &[u8]) -> Result<usize, error::Error> {
+    fn ssl_write(&mut self, buf: &[u8]) -> Result<usize, error::Error> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -92,47 +111,136 @@ impl<S> KtlSteam<S> {
     }
 }
 
-impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlSteam<S> {
+impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlStream<S> {
     fn connection_info(&self) -> &ConnectionInfo {
         self._stream.connection_info()
     }
 }
 
-impl<S> Read for KtlSteam<S> {
+impl<S: AsRawFd> Read for KtlStream<S> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match self.ssl_read(buf) {
-            Ok(read) => Ok(read),
-            Err(err) if err.code() == ErrorCode::WANT_READ => Err(ErrorKind::WouldBlock.into()),
-            Err(err) if err.code() == ErrorCode::WANT_WRITE => Err(ErrorKind::WouldBlock.into()),
-            Err(err) => Err(io::Error::other(err)),
+        match self.state {
+            State::Connecting => {
+                if self.connected()? {
+                    // we intentionally pass BIO_NO_CLOSE to prevent double free on the file descriptor
+                    let sock_bio = unsafe { openssl_sys::BIO_new_socket(self._stream.as_raw_fd(), ffi::BIO_NO_CLOSE) };
+                    assert!(!sock_bio.is_null(), "failed to create socket BIO");
+                    unsafe {
+                        openssl_sys::SSL_set_bio(self.ssl.as_ptr(), sock_bio, sock_bio);
+                    }
+                    self.state = State::Handshake;
+                }
+            }
+            State::Handshake => match self.ssl_connect() {
+                Ok(_) => {
+                    assert!(self.ktls_recv_enabled(), "ktls recv not enabled");
+                    assert!(self.ktls_send_enabled(), "ktls send not enabled");
+                    self.state = State::Drain(0)
+                }
+                Err(err) if err.code() == ErrorCode::WANT_READ => {}
+                Err(err) if err.code() == ErrorCode::WANT_WRITE => {}
+                Err(err) => return Err(io::Error::other(err)),
+            },
+            State::Drain(index) => {
+                let mut from = index;
+                // let remaining = &self.buffer[from..];
+                let remaining =
+                    unsafe { &*slice_from_raw_parts(self.buffer.as_ptr().add(from), self.buffer.len() - from) };
+                if remaining.is_empty() {
+                    self.state = State::Ready;
+                } else {
+                    from += match self.ssl_write(remaining) {
+                        Ok(len) => len,
+                        Err(err) if err.code() == ErrorCode::WANT_READ => 0,
+                        Err(err) if err.code() == ErrorCode::WANT_WRITE => 0,
+                        Err(err) => return Err(io::Error::other(err)),
+                    };
+                    self.state = State::Drain(from);
+                }
+            }
+            State::Ready => match self.ssl_read(buf) {
+                Ok(0) => return Err(ErrorKind::UnexpectedEof.into()),
+                Ok(len) => return Ok(len),
+                Err(err) if err.code() == ErrorCode::WANT_READ => {}
+                Err(err) if err.code() == ErrorCode::WANT_WRITE => {}
+                Err(err) => return Err(io::Error::other(err)),
+            },
         }
+        Err(ErrorKind::WouldBlock.into())
     }
 }
 
-impl<S> Write for KtlSteam<S> {
+impl<S: Write> Write for KtlStream<S> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.ssl_write(buf) {
-            Ok(read) => Ok(read),
-            Err(err) if err.code() == ErrorCode::WANT_READ => Err(ErrorKind::WouldBlock.into()),
-            Err(err) if err.code() == ErrorCode::WANT_WRITE => Err(ErrorKind::WouldBlock.into()),
-            Err(err) => Err(io::Error::other(err)),
+        match self.state {
+            State::Ready => match self.ssl_write(buf) {
+                Ok(len) => Ok(len),
+                Err(err) if err.code() == ErrorCode::WANT_READ => Err(ErrorKind::WouldBlock.into()),
+                Err(err) if err.code() == ErrorCode::WANT_WRITE => Err(ErrorKind::WouldBlock.into()),
+                Err(err) => Err(io::Error::other(err)),
+            },
+            _ => {
+                // we buffer any pending write
+                self.buffer.extend_from_slice(buf);
+                Ok(buf.len())
+            }
         }
     }
 
     #[inline]
     fn flush(&mut self) -> io::Result<()> {
-        Ok(())
+        match self.state {
+            State::Connecting | State::Handshake | State::Drain(_) => Ok(()),
+            State::Ready => self._stream.flush(),
+        }
     }
 }
 
-pub mod error {
+pub trait IntoKtlsStream {
+    fn into_ktls_stream(self) -> io::Result<KtlStream<Self>>
+    where
+        Self: Sized,
+    {
+        self.into_ktls_stream_with_config(|_| ())
+    }
+
+    fn into_ktls_stream_with_config<F>(self, builder: F) -> io::Result<KtlStream<Self>>
+    where
+        Self: Sized,
+        F: FnOnce(&mut TlsConfig);
+}
+
+impl<T> IntoKtlsStream for T
+where
+    T: Read + Write + AsRawFd + ConnectionInfoProvider,
+{
+    fn into_ktls_stream_with_config<F>(self, builder: F) -> io::Result<KtlStream<Self>>
+    where
+        Self: Sized,
+        F: FnOnce(&mut TlsConfig),
+    {
+        let server_name = SmallString::<[u8; 1024]>::from(self.connection_info().host());
+        KtlStream::new_with_config(self, server_name, builder)
+    }
+}
+
+#[derive(Copy, Clone)]
+enum State {
+    Connecting,
+    Handshake,
+    Drain(usize),
+    Ready,
+}
+
+mod error {
+    use crate::util::NoBlock;
+    use foreign_types::ForeignTypeRef;
+    use openssl::{error::ErrorStack, ssl::ErrorCode};
     use std::{error, ffi::c_int, fmt, io};
 
-    use openssl::{error::ErrorStack, ssl::ErrorCode};
-
     #[derive(Debug)]
-    pub(crate) enum InnerError {
+    enum InnerError {
         Io(io::Error),
         Ssl(ErrorStack),
     }
@@ -140,8 +248,8 @@ pub mod error {
     /// An SSL error.
     #[derive(Debug)]
     pub struct Error {
-        pub(crate) code: ErrorCode,
-        pub(crate) cause: Option<InnerError>,
+        code: ErrorCode,
+        cause: Option<InnerError>,
     }
 
     impl Error {
@@ -170,8 +278,7 @@ pub mod error {
             }
         }
 
-        pub(crate) fn make(ret: c_int, ssl: &openssl::ssl::SslRef) -> Self {
-            use foreign_types_shared::ForeignTypeRef;
+        pub fn make(ret: c_int, ssl: &openssl::ssl::SslRef) -> Self {
             let code = unsafe { ErrorCode::from_raw(openssl_sys::SSL_get_error(ssl.as_ptr(), ret)) };
 
             let cause = match code {
@@ -196,13 +303,6 @@ pub mod error {
             };
 
             Error { code, cause }
-        }
-
-        pub(crate) fn make_from_io(e: io::Error) -> Self {
-            Error {
-                code: ErrorCode::SYSCALL,
-                cause: Some(InnerError::Io(e)),
-            }
         }
     }
 
@@ -249,12 +349,40 @@ pub mod error {
             }
         }
     }
+
+    impl NoBlock for Result<usize, Error> {
+        type Value = usize;
+
+        fn no_block(self) -> io::Result<Self::Value> {
+            match self {
+                Ok(value) => Ok(value),
+                Err(err) if err.code() == ErrorCode::WANT_READ => Ok(0),
+                Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(0),
+                Err(err) => Err(io::Error::other(err)),
+            }
+        }
+    }
+
+    impl NoBlock for Result<(), Error> {
+        type Value = ();
+
+        fn no_block(self) -> io::Result<Self::Value> {
+            match self {
+                Ok(()) => Ok(()),
+                Err(err) if err.code() == ErrorCode::WANT_READ => Ok(()),
+                Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(()),
+                Err(err) => Err(io::Error::other(err)),
+            }
+        }
+    }
 }
 
 mod ffi {
     use openssl_sys::BIO_ctrl;
     use std::ffi::{c_int, c_long};
 
+    pub const SSL_OP_ENABLE_KTLS: u64 = 0x00000008;
+    pub const BIO_NO_CLOSE: c_int = 0x00;
     const BIO_CTRL_GET_KTLS_SEND: c_int = 73;
     const BIO_CTRL_GET_KTLS_RECV: c_int = 76;
 
@@ -265,5 +393,46 @@ mod ffi {
     #[allow(non_snake_case)]
     pub unsafe fn BIO_get_ktls_recv(b: *mut openssl_sys::BIO) -> c_long {
         unsafe { BIO_ctrl(b, BIO_CTRL_GET_KTLS_RECV, 0, std::ptr::null_mut()) }
+    }
+}
+
+mod net {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+    use std::os::fd::{AsRawFd, BorrowedFd};
+    use std::{io, mem};
+
+    pub fn peer_addr(fd: BorrowedFd<'_>) -> io::Result<Option<SocketAddr>> {
+        let raw = fd.as_raw_fd();
+
+        let mut storage: libc::sockaddr_storage = unsafe { mem::zeroed() };
+        let mut len = mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+
+        let rc = unsafe { libc::getpeername(raw, &mut storage as *mut _ as *mut libc::sockaddr, &mut len as *mut _) };
+
+        if rc == -1 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ENOTCONN) {
+                return Ok(None);
+            }
+            return Err(err);
+        }
+
+        unsafe {
+            match storage.ss_family as libc::c_int {
+                libc::AF_INET => {
+                    let sa = &*(&storage as *const _ as *const libc::sockaddr_in);
+                    let ip = Ipv4Addr::from(u32::from_be(sa.sin_addr.s_addr));
+                    let port = u16::from_be(sa.sin_port);
+                    Ok(Some(SocketAddr::new(IpAddr::V4(ip), port)))
+                }
+                libc::AF_INET6 => {
+                    let sa = &*(&storage as *const _ as *const libc::sockaddr_in6);
+                    let ip = Ipv6Addr::from(sa.sin6_addr.s6_addr);
+                    let port = u16::from_be(sa.sin6_port);
+                    Ok(Some(SocketAddr::new(IpAddr::V6(ip), port)))
+                }
+                _ => Err(io::Error::new(io::ErrorKind::InvalidData, "unsupported address family")),
+            }
+        }
     }
 }

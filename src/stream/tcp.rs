@@ -69,11 +69,16 @@ impl TryFrom<(ConnectionInfo, SocketAddr)> for TcpStream {
 }
 
 impl TcpStream {
-    pub fn new(stream: std::net::TcpStream, connection_info: ConnectionInfo) -> Self {
+    pub const fn new(stream: std::net::TcpStream, connection_info: ConnectionInfo) -> Self {
         Self {
             inner: stream,
             connection_info,
         }
+    }
+
+    #[inline]
+    pub fn connected(&mut self) -> bool {
+        self.inner.peer_addr().is_ok()
     }
 }
 

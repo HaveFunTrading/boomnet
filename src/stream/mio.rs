@@ -3,7 +3,7 @@
 use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock};
 use std::io::{Read, Write};
 use std::{io, net};
-
+use std::os::fd::{AsRawFd, RawFd};
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use mio::event::Source;
@@ -30,6 +30,12 @@ impl MioStream {
             can_write: false,
             buffer: Vec::with_capacity(4096),
         }
+    }
+}
+
+impl AsRawFd for MioStream {
+    fn as_raw_fd(&self) -> RawFd {
+        self.inner.as_raw_fd()
     }
 }
 

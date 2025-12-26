@@ -1,22 +1,30 @@
-use boomnet::service::IntoIOService;
-use boomnet::service::endpoint::{DisconnectReason, Endpoint};
-use boomnet::service::select::Selectable;
-use boomnet::service::select::mio::MioSelector;
-use boomnet::stream::ktls::{IntoKtlsStream, KtlStream};
-use boomnet::stream::mio::{IntoMioStream, MioStream};
-use boomnet::stream::tcp::TcpStream;
-use boomnet::stream::tls::TlsConfigExt;
-use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
-use boomnet::ws::{IntoWebsocket, Websocket, WebsocketFrame};
-use mio::event::Source;
-use mio::{Interest, Registry, Token};
-use std::net::SocketAddr;
-use std::time::Duration;
+#[cfg(feature = "ktls")]
+mod deps {
+    pub use boomnet::service::IntoIOService;
+    pub use boomnet::service::endpoint::{DisconnectReason, Endpoint};
+    pub use boomnet::service::select::Selectable;
+    pub use boomnet::service::select::mio::MioSelector;
+    pub use boomnet::stream::ktls::{IntoKtlsStream, KtlStream};
+    pub use boomnet::stream::mio::{IntoMioStream, MioStream};
+    pub use boomnet::stream::tcp::TcpStream;
+    pub use boomnet::stream::tls::TlsConfigExt;
+    pub use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
+    pub use boomnet::ws::{IntoWebsocket, Websocket, WebsocketFrame};
+    pub use mio::event::Source;
+    pub use mio::{Interest, Registry, Token};
+    pub use std::net::SocketAddr;
+    pub use std::time::Duration;
+}
 
+#[cfg(feature = "ktls")]
+use deps::*;
+
+#[cfg(feature = "ktls")]
 struct TradeConnectionFactory {
     connection_info: ConnectionInfo,
 }
 
+#[cfg(feature = "ktls")]
 impl TradeConnectionFactory {
     fn new() -> Self {
         Self {
@@ -25,10 +33,12 @@ impl TradeConnectionFactory {
     }
 }
 
+#[cfg(feature = "ktls")]
 struct TradeConnection {
     ws: Websocket<KtlStream<MioStream>>,
 }
 
+#[cfg(feature = "ktls")]
 impl TradeConnection {
     fn do_work(&mut self) -> std::io::Result<()> {
         for frame in self.ws.read_batch()? {
@@ -40,6 +50,7 @@ impl TradeConnection {
     }
 }
 
+#[cfg(feature = "ktls")]
 impl Selectable for TradeConnection {
     fn connected(&mut self) -> std::io::Result<bool> {
         self.ws.connected()
@@ -54,6 +65,7 @@ impl Selectable for TradeConnection {
     }
 }
 
+#[cfg(feature = "ktls")]
 impl Source for TradeConnection {
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> std::io::Result<()> {
         self.ws.register(registry, token, interests)
@@ -68,12 +80,14 @@ impl Source for TradeConnection {
     }
 }
 
+#[cfg(feature = "ktls")]
 impl ConnectionInfoProvider for TradeConnectionFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
+#[cfg(feature = "ktls")]
 impl Endpoint for TradeConnectionFactory {
     type Target = TradeConnection;
 
@@ -94,6 +108,7 @@ impl Endpoint for TradeConnectionFactory {
     }
 }
 
+#[cfg(feature = "ktls")]
 fn main() -> anyhow::Result<()> {
     let mut io_service = MioSelector::new()?
         .into_io_service()
@@ -105,3 +120,6 @@ fn main() -> anyhow::Result<()> {
         io_service.poll(|conn, _| conn.do_work())?;
     }
 }
+
+#[cfg(not(feature = "ktls"))]
+fn main() {}

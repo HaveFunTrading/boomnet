@@ -204,7 +204,7 @@ mod __rustls {
     }
 
     impl<S: Read + Write> TlsStream<S> {
-        pub fn wrap_with_config<F>(stream: S, server_name: &str, builder: F) -> io::Result<TlsStream<S>>
+        pub fn new_with_config<F>(stream: S, server_name: &str, builder: F) -> io::Result<TlsStream<S>>
         where
             F: FnOnce(&mut TlsConfig),
         {
@@ -238,8 +238,8 @@ mod __rustls {
             Ok(Self { inner: stream, tls })
         }
 
-        pub fn wrap(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
-            Self::wrap_with_config(stream, server_name, |_| {})
+        pub fn new(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
+            Self::new_with_config(stream, server_name, |_| {})
         }
 
         fn complete_io(&mut self) -> io::Result<(usize, usize)> {

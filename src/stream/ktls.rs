@@ -1,8 +1,10 @@
+//! Provides TLS offload to the kernel (KTLS).
+//!
 use crate::service::select::Selectable;
+use crate::stream::ktls::error::Error;
 use crate::stream::ktls::net::peer_addr;
 use crate::stream::tls::TlsConfig;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
-pub use error::Error;
 use foreign_types::ForeignType;
 use mio::event::Source;
 use mio::{Interest, Registry, Token};
@@ -13,6 +15,21 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::ptr::slice_from_raw_parts;
 
+/// Offloads TLS to the kernel (KTLS). Uses OpenSSL backend to configure KTLS post handshake (can change in the future).
+/// The stream is designed to work with a non-blocking underlying stream.
+///
+/// ## Prerequisites
+/// Ensure that `tls` kernel module is installed. Otherwise, the code will panic if either KTLS
+/// `send` or `recv` are not enabled. This is the minimum required to enable KTLS in the
+/// software mode.
+///
+/// ## Example
+/// ```no_run
+/// use boomnet::stream::tcp::TcpStream;
+/// use crate::boomnet::stream::ktls::IntoKtlsStream;
+///
+/// let ktls_stream = TcpStream::try_from(("fstream.binance.com", 443)).unwrap().into_ktls_stream().unwrap();
+/// ```
 pub struct KtlStream<S> {
     stream: S,
     ssl: openssl::ssl::Ssl,
@@ -21,6 +38,7 @@ pub struct KtlStream<S> {
 }
 
 impl<S> KtlStream<S> {
+    /// Create KTLS from underlying stream using default [`TlsConfig`].
     pub fn new(stream: S, server_name: impl AsRef<str>) -> io::Result<KtlStream<S>>
     where
         S: AsRawFd,
@@ -28,6 +46,8 @@ impl<S> KtlStream<S> {
         Self::new_with_config(stream, server_name, |_| ())
     }
 
+    /// Create KTLS from underlying stream. This method also requires an action used
+    /// further configure [`TlsConfig`].
     pub fn new_with_config<F>(stream: S, server_name: impl AsRef<str>, configure: F) -> io::Result<KtlStream<S>>
     where
         S: AsRawFd,
@@ -52,6 +72,7 @@ impl<S> KtlStream<S> {
         })
     }
 
+    #[inline]
     fn connected(&self) -> io::Result<bool>
     where
         S: AsRawFd,
@@ -60,10 +81,11 @@ impl<S> KtlStream<S> {
         Ok(peer_addr(fd)?.is_some())
     }
 
-    fn ssl_connect(&self) -> Result<(), error::Error> {
+    #[inline]
+    fn ssl_connect(&self) -> Result<(), Error> {
         let result = unsafe { openssl_sys::SSL_connect(self.ssl.as_ptr()) };
         if result <= 0 {
-            Err(error::Error::make(result, &self.ssl))
+            Err(Error::make(result, &self.ssl))
         } else {
             Ok(())
         }
@@ -84,7 +106,7 @@ impl<S> KtlStream<S> {
     }
 
     #[inline]
-    fn ssl_read(&mut self, buf: &mut [u8]) -> Result<usize, error::Error> {
+    fn ssl_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         unsafe {
             let len =
                 openssl_sys::SSL_read(self.ssl.as_ptr(), buf.as_mut_ptr() as *mut _, buf.len().try_into().unwrap());
@@ -113,6 +135,14 @@ impl<S> KtlStream<S> {
     }
 }
 
+#[derive(Copy, Clone)]
+enum State {
+    Connecting,
+    Handshake,
+    Drain(usize),
+    Ready,
+}
+
 impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlStream<S> {
     fn connection_info(&self) -> &ConnectionInfo {
         self.stream.connection_info()
@@ -135,8 +165,8 @@ impl<S: AsRawFd> Read for KtlStream<S> {
             }
             State::Handshake => match self.ssl_connect() {
                 Ok(_) => {
-                    assert!(self.ktls_recv_enabled(), "ktls recv not enabled");
-                    assert!(self.ktls_send_enabled(), "ktls send not enabled");
+                    assert!(self.ktls_recv_enabled(), "ktls recv not enabled, did you install 'tls' kernel module?");
+                    assert!(self.ktls_send_enabled(), "ktls send not enabled, did you install 'tls' kernel module?");
                     self.state = State::Drain(0)
                 }
                 Err(err) if err.code() == ErrorCode::WANT_READ => {}
@@ -145,7 +175,6 @@ impl<S: AsRawFd> Read for KtlStream<S> {
             },
             State::Drain(index) => {
                 let mut from = index;
-                // let remaining = &self.buffer[from..];
                 let remaining =
                     unsafe { &*slice_from_raw_parts(self.buffer.as_ptr().add(from), self.buffer.len() - from) };
                 if remaining.is_empty() {
@@ -234,7 +263,17 @@ impl<S: Source> Source for KtlStream<S> {
     }
 }
 
+/// Trait to convert underlying stream into [`KtlStream`].
 pub trait IntoKtlsStream {
+    /// Convert underlying stream into [`KtlStream`] with default tls config.
+    ///
+    /// ## Examples
+    /// ```no_run
+    /// use boomnet::stream::tcp::TcpStream;
+    /// use boomnet::stream::ktls::IntoKtlsStream;
+    ///
+    /// let ktls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_ktls_stream().unwrap();
+    /// ```
     fn into_ktls_stream(self) -> io::Result<KtlStream<Self>>
     where
         Self: Sized,
@@ -242,6 +281,16 @@ pub trait IntoKtlsStream {
         self.into_ktls_stream_with_config(|_| ())
     }
 
+    /// Convert underlying stream into [`KtlStream`] and use provided action to modify tls config.
+    ///
+    /// ## Examples
+    /// ```no_run
+    /// use boomnet::stream::tcp::TcpStream;
+    /// use boomnet::stream::ktls::IntoKtlsStream;
+    /// use boomnet::stream::tls::TlsConfigExt;
+    ///
+    /// let ktls = TcpStream::try_from(("127.0.0.1", 4222)).unwrap().into_ktls_stream_with_config(|cfg| cfg.with_no_cert_verification()).unwrap();
+    /// ```
     fn into_ktls_stream_with_config<F>(self, builder: F) -> io::Result<KtlStream<Self>>
     where
         Self: Sized,
@@ -260,14 +309,6 @@ where
         let server_name = SmallString::<[u8; 1024]>::from(self.connection_info().host());
         KtlStream::new_with_config(self, server_name, builder)
     }
-}
-
-#[derive(Copy, Clone)]
-enum State {
-    Connecting,
-    Handshake,
-    Drain(usize),
-    Ready,
 }
 
 mod error {
@@ -298,13 +339,6 @@ mod error {
             match self.cause {
                 Some(InnerError::Io(ref e)) => Some(e),
                 _ => None,
-            }
-        }
-
-        pub fn into_io_error(self) -> Result<io::Error, Error> {
-            match self.cause {
-                Some(InnerError::Io(e)) => Ok(e),
-                _ => Err(self),
             }
         }
 

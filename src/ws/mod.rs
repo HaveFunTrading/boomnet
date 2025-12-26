@@ -468,7 +468,7 @@ where
 
         let tls_ready_stream = match url.scheme() {
             "ws" => Ok(TlsReadyStream::Plain(stream)),
-            "wss" => Ok(TlsReadyStream::Tls(TlsStream::wrap(stream, url.host_str().unwrap()).unwrap())),
+            "wss" => Ok(TlsReadyStream::Tls(TlsStream::new(stream, url.host_str().unwrap()).unwrap())),
             scheme => Err(io::Error::other(format!("unrecognised url scheme: {scheme}"))),
         }?;
 

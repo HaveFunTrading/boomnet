@@ -24,6 +24,20 @@ pub struct TlsConfig {
     openssl_config: SslConnectorBuilder,
 }
 
+#[cfg(feature = "openssl")]
+impl From<SslConnectorBuilder> for TlsConfig {
+    fn from(config: SslConnectorBuilder) -> Self {
+        Self { openssl_config: config }
+    }
+}
+
+#[cfg(all(feature = "rustls", not(feature = "openssl")))]
+impl From<ClientConfig> for TlsConfig {
+    fn from(config: ClientConfig) -> Self {
+        Self { rustls_config: config }
+    }
+}
+
 /// Extension methods for `TlsConfig`.
 pub trait TlsConfigExt {
     /// Disable certificate verification.
@@ -68,6 +82,12 @@ impl TlsConfig {
     #[cfg(feature = "openssl")]
     pub const fn as_openssl_mut(&mut self) -> &mut SslConnectorBuilder {
         &mut self.openssl_config
+    }
+
+    /// Get mutable reference to the `openssl` configuration object.
+    #[cfg(feature = "openssl")]
+    pub fn into_openssl(self) -> SslConnectorBuilder {
+        self.openssl_config
     }
 }
 
@@ -184,7 +204,7 @@ mod __rustls {
     }
 
     impl<S: Read + Write> TlsStream<S> {
-        pub fn wrap_with_config<F>(stream: S, server_name: &str, builder: F) -> io::Result<TlsStream<S>>
+        pub fn new_with_config<F>(stream: S, server_name: &str, builder: F) -> io::Result<TlsStream<S>>
         where
             F: FnOnce(&mut TlsConfig),
         {
@@ -218,8 +238,8 @@ mod __rustls {
             Ok(Self { inner: stream, tls })
         }
 
-        pub fn wrap(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
-            Self::wrap_with_config(stream, server_name, |_| {})
+        pub fn new(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
+            Self::new_with_config(stream, server_name, |_| {})
         }
 
         fn complete_io(&mut self) -> io::Result<(usize, usize)> {
@@ -355,7 +375,7 @@ mod __openssl {
     }
 
     impl<S> State<S> {
-        fn get_stream_mut(&mut self) -> io::Result<&mut S> {
+        fn get_mut(&mut self) -> io::Result<&mut S> {
             match self {
                 State::Handshake(stream_and_buf) => match stream_and_buf.as_mut() {
                     Some((stream, _)) => Ok(stream.get_mut()),
@@ -383,29 +403,29 @@ mod __openssl {
     #[cfg(feature = "mio")]
     impl<S: Source> Source for TlsStream<S> {
         fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-            registry.register(self.state.get_stream_mut()?, token, interests)
+            registry.register(self.state.get_mut()?, token, interests)
         }
 
         fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-            registry.reregister(self.state.get_stream_mut()?, token, interests)
+            registry.reregister(self.state.get_mut()?, token, interests)
         }
 
         fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
-            registry.deregister(self.state.get_stream_mut()?)
+            registry.deregister(self.state.get_mut()?)
         }
     }
 
     impl<S: Selectable> Selectable for TlsStream<S> {
         fn connected(&mut self) -> io::Result<bool> {
-            self.state.get_stream_mut()?.connected()
+            self.state.get_mut()?.connected()
         }
 
         fn make_writable(&mut self) -> io::Result<()> {
-            self.state.get_stream_mut()?.make_writable()
+            self.state.get_mut()?.make_writable()
         }
 
         fn make_readable(&mut self) -> io::Result<()> {
-            self.state.get_stream_mut()?.make_readable()
+            self.state.get_mut()?.make_readable()
         }
     }
 
@@ -485,7 +505,7 @@ mod __openssl {
     }
 
     impl<S: Read + Write + Debug> TlsStream<S> {
-        pub fn wrap_with_config<F>(stream: S, server_name: &str, configure: F) -> io::Result<TlsStream<S>>
+        pub fn new_with_config<F>(stream: S, server_name: &str, configure: F) -> io::Result<TlsStream<S>>
         where
             F: FnOnce(&mut TlsConfig),
         {
@@ -510,8 +530,8 @@ mod __openssl {
             }
         }
 
-        pub fn wrap(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
-            Self::wrap_with_config(stream, server_name, |_| {})
+        pub fn new(stream: S, server_name: &str) -> io::Result<TlsStream<S>> {
+            Self::new_with_config(stream, server_name, |_| {})
         }
     }
 
@@ -576,7 +596,7 @@ where
         F: FnOnce(&mut TlsConfig),
     {
         let server_name = self.connection_info().clone().host;
-        TlsStream::wrap_with_config(self, &server_name, builder)
+        TlsStream::new_with_config(self, &server_name, builder)
     }
 }
 

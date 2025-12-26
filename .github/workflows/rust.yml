@@ -21,6 +21,7 @@ jobs:
       matrix:
         features:
           - "ext,http,ws,mio,openssl"
+          - "ext,http,ws,mio,ktls"
           - "ext,http,ws,mio,rustls-webpki"
           - "ext,http,ws,mio,rustls-native"
     steps:
@@ -34,6 +35,7 @@ jobs:
       matrix:
         features:
           - "ext,http,ws,mio,openssl"
+          - "ext,http,ws,mio,ktls"
           - "ext,http,ws,mio,rustls-webpki"
           - "ext,http,ws,mio,rustls-native"
     steps:
@@ -76,6 +78,7 @@ jobs:
       matrix:
         features:
           - "ext,http,ws,mio,openssl"
+          - "ext,http,ws,mio,ktls"
           - "ext,http,ws,mio,rustls-webpki"
           - "ext,http,ws,mio,rustls-native"
     steps:

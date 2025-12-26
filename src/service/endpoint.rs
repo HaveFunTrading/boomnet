@@ -16,11 +16,9 @@ pub trait Endpoint: ConnectionInfoProvider {
     /// await the next connection attempt with (possibly) different `addr`.
     fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>>;
 
-    // /// Called by the `IOService` on each duty cycle.
-    // fn poll(&mut self, target: &mut Self::Target) -> io::Result<()>;
-
     /// Upon disconnection `IOService` will query the endpoint if the connection can be
-    /// recreated, passing the disconnect `reason`. If not, it will cause program to panic.
+    /// recreated, passing the disconnect `reason`. If `false` is returned it will cause
+    /// program to panic.
     fn can_recreate(&mut self, _reason: DisconnectReason) -> bool {
         true
     }
@@ -49,7 +47,8 @@ pub trait EndpointWithContext<C>: ConnectionInfoProvider {
     fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Option<Self::Target>>;
 
     /// Upon disconnection `IOService` will query the endpoint if the connection can be
-    /// recreated, passing the disconnect `reason`. If not, it will cause program to panic.
+    /// recreated, passing the disconnect `reason`. If `false` is returned it will cause
+    /// program to panic.
     fn can_recreate(&mut self, _reason: DisconnectReason, _context: &mut C) -> bool {
         true
     }
@@ -66,9 +65,8 @@ pub trait EndpointWithContext<C>: ConnectionInfoProvider {
 pub enum DisconnectReason {
     /// This is expected disconnection due to `ttl` on the connection expiring.
     AutoDisconnect(Duration),
-    /// Some other IO error has occurred such as reaching EOF or peer disconnect. It's normally
-    /// ok to try and connect again.
-    Other(io::Error),
+    /// IO error has occurred such as reaching EOF or peer disconnect.
+    IO(io::Error),
 }
 
 impl Display for DisconnectReason {
@@ -78,7 +76,7 @@ impl Display for DisconnectReason {
                 write!(f, "auto-disconnect after ")?;
                 ttl.fmt(f)
             }
-            DisconnectReason::Other(err) => {
+            DisconnectReason::IO(err) => {
                 write!(f, "{err}")
             }
         }
@@ -91,7 +89,7 @@ impl DisconnectReason {
     }
 
     pub(crate) fn other(err: io::Error) -> DisconnectReason {
-        DisconnectReason::Other(err)
+        DisconnectReason::IO(err)
     }
 }
 

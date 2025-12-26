@@ -20,6 +20,7 @@ mio = ["dep:mio"]
 rustls-native = ["rustls", "rustls-native-certs"]
 rustls-webpki = ["rustls", "webpki-roots"]
 openssl = ["dep:openssl", "dep:openssl-probe"]
+ktls = ["openssl", "dep:openssl-sys", "dep:foreign-types", "dep:libc", "dep:openssl-src"]
 http = ["dep:http", "httparse", "memchr", "itoa"]
 ws = ["rand", "base64", "dep:http", "httparse"]
 ext = []
@@ -43,6 +44,9 @@ smallvec = "1.15.0"
 smallstr = "0.3.1"
 core_affinity = "0.8.3"
 log = "0.4.20"
+openssl-sys = { version = "0.9", optional = true }
+foreign-types = { version = "0.3.1", optional = true }
+libc = { version = "0.2", optional = true }
 
 [dependencies.webpki-roots]
 version = "0.26.0"
@@ -59,6 +63,12 @@ ansi_term = "0.12.1"
 tungstenite = "0.28.0"
 criterion = "0.5.1"
 idle = "0.2.0"
+
+[build-dependencies.openssl-src]
+version = "300"
+features = ["ktls"]
+optional = true
+default-features = false
 
 [lints.clippy]
 uninit_assumed_init = "allow"

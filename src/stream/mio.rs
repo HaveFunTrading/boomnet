@@ -1,14 +1,14 @@
 //! Stream that can be used together with `MioSelector`.
 
-use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock};
-use std::io::{Read, Write};
-use std::{io, net};
-use std::os::fd::{AsRawFd, RawFd};
 use crate::service::select::Selectable;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use mio::event::Source;
 use mio::net::TcpStream;
 use mio::{Interest, Registry, Token};
+use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock};
+use std::io::{Read, Write};
+use std::os::fd::{AsRawFd, RawFd};
+use std::{io, net};
 
 #[derive(Debug)]
 pub struct MioStream {

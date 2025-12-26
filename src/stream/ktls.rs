@@ -1,8 +1,11 @@
+use crate::service::select::Selectable;
 use crate::stream::ktls::net::peer_addr;
 use crate::stream::tls::TlsConfig;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 pub use error::Error;
 use foreign_types::ForeignType;
+use mio::event::Source;
+use mio::{Interest, Registry, Token};
 use openssl::ssl::{ErrorCode, SslOptions};
 use smallstr::SmallString;
 use std::io;
@@ -11,7 +14,7 @@ use std::os::fd::{AsRawFd, BorrowedFd};
 use std::ptr::slice_from_raw_parts;
 
 pub struct KtlStream<S> {
-    _stream: S,
+    stream: S,
     ssl: openssl::ssl::Ssl,
     state: State,
     buffer: Vec<u8>,
@@ -32,7 +35,6 @@ impl<S> KtlStream<S> {
     {
         const SSL_OP_ENABLE_KTLS: SslOptions = SslOptions::from_bits_retain(ffi::SSL_OP_ENABLE_KTLS);
 
-        // configure SSL context
         let mut builder = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
         builder.set_options(SSL_OP_ENABLE_KTLS);
 
@@ -43,7 +45,7 @@ impl<S> KtlStream<S> {
         let ssl = config.into_ssl(server_name.as_ref())?;
 
         Ok(KtlStream {
-            _stream: stream,
+            stream,
             ssl,
             state: State::Connecting,
             buffer: Vec::with_capacity(4096),
@@ -54,7 +56,7 @@ impl<S> KtlStream<S> {
     where
         S: AsRawFd,
     {
-        let fd = unsafe { BorrowedFd::borrow_raw(self._stream.as_raw_fd()) };
+        let fd = unsafe { BorrowedFd::borrow_raw(self.stream.as_raw_fd()) };
         Ok(peer_addr(fd)?.is_some())
     }
 
@@ -113,7 +115,7 @@ impl<S> KtlStream<S> {
 
 impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlStream<S> {
     fn connection_info(&self) -> &ConnectionInfo {
-        self._stream.connection_info()
+        self.stream.connection_info()
     }
 }
 
@@ -123,7 +125,7 @@ impl<S: AsRawFd> Read for KtlStream<S> {
             State::Connecting => {
                 if self.connected()? {
                     // we intentionally pass BIO_NO_CLOSE to prevent double free on the file descriptor
-                    let sock_bio = unsafe { openssl_sys::BIO_new_socket(self._stream.as_raw_fd(), ffi::BIO_NO_CLOSE) };
+                    let sock_bio = unsafe { openssl_sys::BIO_new_socket(self.stream.as_raw_fd(), ffi::BIO_NO_CLOSE) };
                     assert!(!sock_bio.is_null(), "failed to create socket BIO");
                     unsafe {
                         openssl_sys::SSL_set_bio(self.ssl.as_ptr(), sock_bio, sock_bio);
@@ -192,8 +194,43 @@ impl<S: Write> Write for KtlStream<S> {
     fn flush(&mut self) -> io::Result<()> {
         match self.state {
             State::Connecting | State::Handshake | State::Drain(_) => Ok(()),
-            State::Ready => self._stream.flush(),
+            State::Ready => self.stream.flush(),
         }
+    }
+}
+
+impl<S: Selectable> Selectable for KtlStream<S> {
+    #[inline]
+    fn connected(&mut self) -> io::Result<bool> {
+        self.stream.connected()
+    }
+
+    #[inline]
+    fn make_writable(&mut self) -> io::Result<()> {
+        self.stream.make_writable()
+    }
+
+    #[inline]
+    fn make_readable(&mut self) -> io::Result<()> {
+        self.stream.make_readable()
+    }
+}
+
+#[cfg(feature = "mio")]
+impl<S: Source> Source for KtlStream<S> {
+    #[inline]
+    fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        registry.register(&mut self.stream, token, interests)
+    }
+
+    #[inline]
+    fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        registry.reregister(&mut self.stream, token, interests)
+    }
+
+    #[inline]
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+        registry.deregister(&mut self.stream)
     }
 }
 

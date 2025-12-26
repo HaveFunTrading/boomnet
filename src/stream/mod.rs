@@ -11,6 +11,8 @@ use url::{ParseError, Url};
 
 pub mod buffer;
 pub mod file;
+#[cfg(all(target_os = "linux", feature = "ktls"))]
+pub mod ktls;
 #[cfg(feature = "mio")]
 pub mod mio;
 pub mod record;
@@ -18,8 +20,6 @@ pub mod replay;
 pub mod tcp;
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 pub mod tls;
-#[cfg(all(target_os = "linux", feature = "ktls"))]
-pub mod ktls;
 
 #[cfg(target_os = "linux")]
 const EINPROGRESS: i32 = 115;

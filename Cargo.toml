@@ -7,7 +7,7 @@ description = "Framework for building low latency clients on top of TCP."
 readme = "./README.md"
 documentation = "https://docs.rs/boomnet"
 repository = "https://github.com/HaveFunTrading/boomnet"
-keywords = ["http", "async", "client", "websocket", "mio"]
+keywords = ["http", "ktls", "client", "websocket", "mio"]
 categories = ["network-programming", "web-programming::websocket", "web-programming::http-client"]
 rust-version = "1.87.0"
 

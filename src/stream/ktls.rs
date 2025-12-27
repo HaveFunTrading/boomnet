@@ -6,8 +6,8 @@ use crate::stream::ktls::net::peer_addr;
 use crate::stream::tls::TlsConfig;
 use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
 use foreign_types::ForeignType;
-use mio::event::Source;
-use mio::{Interest, Registry, Token};
+#[cfg(feature = "mio")]
+use mio::{Interest, Registry, Token, event::Source};
 use openssl::ssl::{ErrorCode, SslOptions};
 use smallstr::SmallString;
 use std::io;
@@ -119,7 +119,7 @@ impl<S> KtlsStream<S> {
     }
 
     #[inline]
-    fn ssl_write(&mut self, buf: &[u8]) -> Result<usize, error::Error> {
+    fn ssl_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -127,7 +127,7 @@ impl<S> KtlsStream<S> {
             let len =
                 openssl_sys::SSL_write(self.ssl.as_ptr(), buf.as_ptr() as *const _, buf.len().try_into().unwrap());
             if len < 0 {
-                Err(error::Error::make(len, &self.ssl))
+                Err(Error::make(len, &self.ssl))
             } else {
                 Ok(len as usize)
             }
@@ -150,7 +150,7 @@ impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlsStream<S> {
 }
 
 impl<S: AsRawFd> Read for KtlsStream<S> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.state {
             State::Connecting => {
                 if self.connected()? {
@@ -312,7 +312,6 @@ where
 }
 
 mod error {
-    use crate::util::NoBlock;
     use foreign_types::ForeignTypeRef;
     use openssl::{error::ErrorStack, ssl::ErrorCode};
     use std::{error, ffi::c_int, fmt, io};
@@ -421,31 +420,31 @@ mod error {
         }
     }
 
-    impl NoBlock for Result<usize, Error> {
-        type Value = usize;
-
-        fn no_block(self) -> io::Result<Self::Value> {
-            match self {
-                Ok(value) => Ok(value),
-                Err(err) if err.code() == ErrorCode::WANT_READ => Ok(0),
-                Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(0),
-                Err(err) => Err(io::Error::other(err)),
-            }
-        }
-    }
-
-    impl NoBlock for Result<(), Error> {
-        type Value = ();
-
-        fn no_block(self) -> io::Result<Self::Value> {
-            match self {
-                Ok(()) => Ok(()),
-                Err(err) if err.code() == ErrorCode::WANT_READ => Ok(()),
-                Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(()),
-                Err(err) => Err(io::Error::other(err)),
-            }
-        }
-    }
+    // impl NoBlock for Result<usize, Error> {
+    //     type Value = usize;
+    //
+    //     fn no_block(self) -> io::Result<Self::Value> {
+    //         match self {
+    //             Ok(value) => Ok(value),
+    //             Err(err) if err.code() == ErrorCode::WANT_READ => Ok(0),
+    //             Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(0),
+    //             Err(err) => Err(io::Error::other(err)),
+    //         }
+    //     }
+    // }
+    //
+    // impl NoBlock for Result<(), Error> {
+    //     type Value = ();
+    //
+    //     fn no_block(self) -> io::Result<Self::Value> {
+    //         match self {
+    //             Ok(()) => Ok(()),
+    //             Err(err) if err.code() == ErrorCode::WANT_READ => Ok(()),
+    //             Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(()),
+    //             Err(err) => Err(io::Error::other(err)),
+    //         }
+    //     }
+    // }
 }
 
 mod ffi {

@@ -63,7 +63,7 @@ let mut io_service = MioSelector::new()?.into_io_service();
 The last layer manages lifecycle of endpoints and provides auxiliary services (such as asynchronous DNS resolution and
 auto disconnect) through the `IOService`.
 
-`Endpoint` serves as low level construct for application logic. `IOService` oversees the connection lifecycle within endpoints.
+`Endpoint` serves as connection factory and is where application logic lives. `IOService` oversees the connection lifecycle within endpoints.
 
 ## Protocols
 The aim is to support a variety of protocols, including WebSocket, HTTP, and FIX.

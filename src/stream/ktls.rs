@@ -419,32 +419,6 @@ mod error {
             }
         }
     }
-
-    // impl NoBlock for Result<usize, Error> {
-    //     type Value = usize;
-    //
-    //     fn no_block(self) -> io::Result<Self::Value> {
-    //         match self {
-    //             Ok(value) => Ok(value),
-    //             Err(err) if err.code() == ErrorCode::WANT_READ => Ok(0),
-    //             Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(0),
-    //             Err(err) => Err(io::Error::other(err)),
-    //         }
-    //     }
-    // }
-    //
-    // impl NoBlock for Result<(), Error> {
-    //     type Value = ();
-    //
-    //     fn no_block(self) -> io::Result<Self::Value> {
-    //         match self {
-    //             Ok(()) => Ok(()),
-    //             Err(err) if err.code() == ErrorCode::WANT_READ => Ok(()),
-    //             Err(err) if err.code() == ErrorCode::WANT_WRITE => Ok(()),
-    //             Err(err) => Err(io::Error::other(err)),
-    //         }
-    //     }
-    // }
 }
 
 mod ffi {

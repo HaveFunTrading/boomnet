@@ -243,6 +243,21 @@ mod __rustls {
         }
 
         fn complete_io(&mut self) -> io::Result<(usize, usize)> {
+            // Write all pending TLS data
+            #[cfg(feature = "blocking_sockets")]
+            let wrote = {
+                let mut total_wrote = 0;
+                while self.tls.wants_write() {
+                    let w = self.tls.write_tls(&mut self.inner)?;
+                    total_wrote += w;
+                    if w == 0 {
+                        break;
+                    }
+                }
+                total_wrote
+            };
+
+            #[cfg(not(feature = "blocking_sockets"))]
             let wrote = if self.tls.wants_write() {
                 self.tls.write_tls(&mut self.inner)?
             } else {

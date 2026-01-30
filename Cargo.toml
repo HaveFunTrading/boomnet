@@ -24,6 +24,7 @@ ktls = ["openssl", "dep:openssl-sys", "dep:foreign-types", "dep:libc", "dep:open
 http = ["dep:http", "httparse", "memchr", "itoa"]
 ws = ["rand", "base64", "dep:http", "httparse"]
 ext = []
+blocking_sockets = []
 
 [dependencies]
 url = "2.5.0"

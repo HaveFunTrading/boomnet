@@ -249,6 +249,10 @@ mod __rustls {
                 0
             };
 
+            if wrote > 0 && !self.tls.is_handshaking() {
+                return Ok((0, wrote));
+            }
+
             let read = if self.tls.wants_read() {
                 let read = self.tls.read_tls(&mut self.inner).no_block()?;
                 if read > 0 {

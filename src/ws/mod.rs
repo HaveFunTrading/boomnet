@@ -94,6 +94,9 @@ pub enum WebsocketFrame {
     /// Server has sent close frame. The websocket will be closed as a result. This frame is not
     /// exposed to the user.
     Close(&'static [u8]),
+    /// Server has sent an opcode that boomnet does not support. It is up to the user to handle the
+    /// outcome of an Unknown opcode
+    Unknown(u8, &'static [u8]),
 }
 
 /// Websocket client that owns underlying stream.

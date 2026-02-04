@@ -124,7 +124,7 @@ impl Decoder {
                             protocol::op::CONTINUATION_FRAME => WebsocketFrame::Continuation(self.fin, payload),
                             protocol::op::PING => WebsocketFrame::Ping(payload),
                             protocol::op::CONNECTION_CLOSE => WebsocketFrame::Close(payload),
-                            _ => return Err(Error::Protocol("unknown op_code")),
+                            _ => WebsocketFrame::Unknown(self.op_code, payload),
                         };
                         self.decode_state = DecodeState::ReadingHeader;
                         return Ok(Some(frame));

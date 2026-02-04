@@ -15,7 +15,7 @@ rust-version = "1.87.0"
 all-features = true
 
 [features]
-default = ["ws"]
+default = []
 mio = ["dep:mio"]
 rustls-native = ["rustls", "rustls-native-certs"]
 rustls-webpki = ["rustls", "webpki-roots"]

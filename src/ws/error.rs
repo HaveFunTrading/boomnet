@@ -8,7 +8,7 @@ pub enum Error {
     #[error("the peer has sent the close frame: status code {0}, body: {1}")]
     ReceivedCloseFrame(u16, String),
     #[error("websocket protocol error: {0}")]
-    Protocol(&'static str),
+    Protocol(String),
     #[error("the websocket is closed and can be dropped")]
     Closed,
     #[error("IO error: {0}")]

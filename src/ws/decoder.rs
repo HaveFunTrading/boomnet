@@ -58,7 +58,7 @@ impl Decoder {
                         let rsv2 = (b & protocol::RSV2_MASK) >> 5;
                         let rsv3 = (b & protocol::RSV3_MASK) >> 4;
                         if rsv1 + rsv2 + rsv3 != 0 {
-                            return Err(Error::Protocol("non zero RSV value received"));
+                            return Err(Error::Protocol("non zero RSV value received".to_string()));
                         }
                         self.fin = fin;
                         let op_code = b & protocol::OP_CODE_MASK;
@@ -74,7 +74,7 @@ impl Decoder {
                         let b = unsafe { self.buffer.consume_next_byte_unchecked() };
                         let mask = (b & protocol::MASK_MASK) >> 7;
                         if mask == 1 {
-                            return Err(Error::Protocol("masking bit set on the server frame"));
+                            return Err(Error::Protocol("masking bit set on the server frame".to_string()));
                         }
                         let payload_length = b & protocol::PAYLOAD_LENGTH_MASK;
                         self.payload_length = payload_length as usize;
@@ -123,8 +123,9 @@ impl Decoder {
                             protocol::op::BINARY_FRAME => WebsocketFrame::Binary(self.fin, payload),
                             protocol::op::CONTINUATION_FRAME => WebsocketFrame::Continuation(self.fin, payload),
                             protocol::op::PING => WebsocketFrame::Ping(payload),
+                            protocol::op::PONG => WebsocketFrame::Pong(payload),
                             protocol::op::CONNECTION_CLOSE => WebsocketFrame::Close(payload),
-                            _ => return Err(Error::Protocol("unknown op_code")),
+                            _ => return Err(Error::Protocol(format!("unknown op_code: {}", self.op_code))),
                         };
                         self.decode_state = DecodeState::ReadingHeader;
                         return Ok(Some(frame));

@@ -358,7 +358,7 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUN
     /// Returns `true` if the connection has been explicitly invalidated.
     #[inline]
     pub fn is_invalidated(&self) -> bool {
-        self.conn.as_ref().map_or(false, |c| c.invalidated)
+        self.conn.as_ref().is_some_and(|c| c.invalidated)
     }
 
     /// Returns `true` if the connection can be reused by the pool.
@@ -367,7 +367,7 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUN
     /// nor invalidated (user-requested).
     #[inline]
     pub fn is_reusable(&self) -> bool {
-        self.conn.as_ref().map_or(false, |c| c.is_reusable())
+        self.conn.as_ref().is_some_and(|c| c.is_reusable())
     }
 
     /// Read from the stream and return when complete. Must provide buffer that will hold the response.

@@ -259,7 +259,7 @@ impl ConnectionPool for SingleTlsConnectionPool {
     fn release(&mut self, conn: Option<Connection<Self::Stream>>) {
         self.has_active_connection = false;
         if let Some(conn) = conn {
-            if !conn.disconnected {
+            if conn.is_reusable() {
                 let _ = self.conn.insert(conn);
             }
         }
@@ -344,6 +344,30 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUN
                 return Ok((status_code, headers.to_owned(), body.to_owned()));
             }
         }
+    }
+
+    /// Marks the connection as invalidated, ensuring it will be discarded
+    /// when this request is dropped rather than returned to the pool.
+    #[inline]
+    pub fn invalidate(&mut self) {
+        if let Some(conn) = self.conn.as_mut() {
+            conn.invalidated = true;
+        }
+    }
+
+    /// Returns `true` if the connection has been explicitly invalidated.
+    #[inline]
+    pub fn is_invalidated(&self) -> bool {
+        self.conn.as_ref().map_or(false, |c| c.invalidated)
+    }
+
+    /// Returns `true` if the connection can be reused by the pool.
+    ///
+    /// A connection is reusable if it is neither disconnected (IO error)
+    /// nor invalidated (user-requested).
+    #[inline]
+    pub fn is_reusable(&self) -> bool {
+        self.conn.as_ref().map_or(false, |c| c.is_reusable())
     }
 
     /// Read from the stream and return when complete. Must provide buffer that will hold the response.
@@ -464,6 +488,7 @@ pub struct Connection<S, const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE> {
     stream: S,
     buffer: Vec<u8>,
     disconnected: bool,
+    invalidated: bool,
     header_finder: Finder,
 }
 
@@ -526,6 +551,7 @@ impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
             stream,
             buffer: Vec::with_capacity(CHUNK_SIZE),
             disconnected: false,
+            invalidated: false,
             header_finder: Finder::new(b"\r\n\r\n"),
         }
     }
@@ -534,6 +560,21 @@ impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
     #[inline]
     pub const fn is_disconnected(&self) -> bool {
         self.disconnected
+    }
+
+    /// Returns whether the connection has been explicitly invalidated by the user.
+    #[inline]
+    pub const fn is_invalidated(&self) -> bool {
+        self.invalidated
+    }
+
+    /// Returns whether this connection can be reused by the pool.
+    ///
+    /// A connection is reusable if it is neither disconnected (IO error)
+    /// nor invalidated (user-requested).
+    #[inline]
+    pub const fn is_reusable(&self) -> bool {
+        !self.disconnected && !self.invalidated
     }
 }
 

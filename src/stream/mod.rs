@@ -4,8 +4,9 @@ use crate::inet::{FromSocketAddr, IntoNetworkInterface, ToSocketAddr};
 use crate::service::select::Selectable;
 use pnet::datalink::NetworkInterface;
 use socket2::{Domain, Protocol, Socket, Type};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::Arc;
 use std::{io, vec};
 use url::{ParseError, Url};
 
@@ -25,6 +26,53 @@ pub mod tls;
 const EINPROGRESS: i32 = 115;
 #[cfg(target_os = "macos")]
 const EINPROGRESS: i32 = 36;
+
+/// Additional socket options not exposed by [`socket2::Socket`].
+pub trait SocketExt {
+    /// Enable or disable Linux's `SO_PREFER_BUSY_POLL` socket option.
+    #[cfg(target_os = "linux")]
+    fn set_prefer_busy_poll(&self, prefer: bool) -> io::Result<()>;
+
+    /// Set Linux's `SO_BUSY_POLL_BUDGET` NAPI packet-processing budget.
+    ///
+    /// Raising the budget requires the `CAP_NET_ADMIN` capability.
+    #[cfg(target_os = "linux")]
+    fn set_busy_poll_budget(&self, budget: u16) -> io::Result<()>;
+}
+
+impl SocketExt for Socket {
+    #[cfg(target_os = "linux")]
+    fn set_prefer_busy_poll(&self, prefer: bool) -> io::Result<()> {
+        set_socket_int_option(self, libc::SO_PREFER_BUSY_POLL, prefer.into())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn set_busy_poll_budget(&self, budget: u16) -> io::Result<()> {
+        set_socket_int_option(self, libc::SO_BUSY_POLL_BUDGET, budget.into())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_socket_int_option(socket: &Socket, option: libc::c_int, value: libc::c_int) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    // SAFETY: `socket` supplies a valid descriptor and `value` is the integer
+    // payload required by the supplied SOL_SOCKET option.
+    let result = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            option,
+            std::ptr::from_ref(&value).cast(),
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
 
 /// Trait to create `TcpStream` and optionally bind it to a specific network interface and/or cpu
 /// before connecting.
@@ -158,7 +206,7 @@ impl BindAndConnect for TcpStream {
             Some(Protocol::TCP),
         )?;
         socket.set_nonblocking(true)?;
-        socket.set_nodelay(true)?;
+        socket.set_tcp_nodelay(true)?;
         socket.set_keepalive(true)?;
 
         // apply custom options
@@ -203,15 +251,30 @@ pub trait ConnectionInfoProvider {
     fn connection_info(&self) -> &ConnectionInfo;
 }
 
+type SocketConfig = dyn Fn(&Socket) -> io::Result<()> + Send + Sync + 'static;
+
 /// TCP stream connection info.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ConnectionInfo {
     host: String,
     port: u16,
     net_iface: Option<SocketAddr>,
     net_iface_name: Option<String>,
     cpu: Option<usize>,
-    socket_config: Option<fn(&Socket) -> io::Result<()>>,
+    socket_config: Option<Arc<SocketConfig>>,
+}
+
+impl Debug for ConnectionInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionInfo")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("net_iface", &self.net_iface)
+            .field("net_iface_name", &self.net_iface_name)
+            .field("cpu", &self.cpu)
+            .field("socket_config", &self.socket_config.as_ref().map(|_| "<closure>"))
+            .finish()
+    }
 }
 
 impl ToSocketAddrs for ConnectionInfo {
@@ -307,10 +370,32 @@ impl ConnectionInfo {
         Self { cpu: Some(cpu), ..self }
     }
 
-    /// Add custom user action used to configure socket.
-    pub fn with_socket_config(self, socket_config: fn(&Socket) -> io::Result<()>) -> Self {
+    /// Add a reusable custom action used to configure each newly-created socket.
+    ///
+    /// The action may capture owned state and is shared by cloned connection information.
+    ///
+    /// ```no_run
+    /// use boomnet::stream::{ConnectionInfo, SocketExt};
+    ///
+    /// let busy_poll_micros = 50;
+    /// let connection = ConnectionInfo::new("stream.binance.com", 443).with_socket_config(
+    ///     move |socket| {
+    ///         socket.set_busy_poll(busy_poll_micros)?;
+    ///         #[cfg(target_os = "linux")]
+    ///         {
+    ///             socket.set_prefer_busy_poll(true)?;
+    ///             socket.set_busy_poll_budget(64)?;
+    ///         }
+    ///         Ok(())
+    ///     },
+    /// );
+    /// ```
+    pub fn with_socket_config<F>(self, socket_config: F) -> Self
+    where
+        F: Fn(&Socket) -> io::Result<()> + Send + Sync + 'static,
+    {
         Self {
-            socket_config: Some(socket_config),
+            socket_config: Some(Arc::new(socket_config)),
             ..self
         }
     }
@@ -337,25 +422,40 @@ impl ConnectionInfo {
 
     /// Convert to tcp stream. This will perform DNS address resolution.
     pub fn into_tcp_stream(self) -> io::Result<tcp::TcpStream> {
-        let stream =
-            TcpStream::bind_and_connect_with_socket_config(&self, self.net_iface, self.cpu, |socket| {
-                match self.socket_config {
-                    Some(f) => f(socket),
-                    None => Ok(()),
-                }
-            })?;
+        let stream = TcpStream::bind_and_connect_with_socket_config(&self, self.net_iface, self.cpu, |socket| {
+            self.socket_config.as_ref().map_or(Ok(()), |f| f(socket))
+        })?;
         Ok(tcp::TcpStream::new(stream, self))
     }
 
     /// Convert to tcp stream using already resolved address.
     pub fn into_tcp_stream_with_addr(self, addr: SocketAddr) -> io::Result<tcp::TcpStream> {
-        let stream =
-            TcpStream::bind_and_connect_with_socket_config(addr, self.net_iface, self.cpu, |socket| {
-                match self.socket_config {
-                    Some(f) => f(socket),
-                    None => Ok(()),
-                }
-            })?;
+        let stream = TcpStream::bind_and_connect_with_socket_config(addr, self.net_iface, self.cpu, |socket| {
+            self.socket_config.as_ref().map_or(Ok(()), |f| f(socket))
+        })?;
         Ok(tcp::TcpStream::new(stream, self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn socket_config_can_capture_state_and_is_shared_by_clones() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed_calls = Arc::clone(&calls);
+        let connection_info = ConnectionInfo::new("localhost", 443).with_socket_config(move |_| {
+            observed_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+        let cloned = connection_info.clone();
+        let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP)).unwrap();
+
+        connection_info.socket_config.as_ref().unwrap()(&socket).unwrap();
+        cloned.socket_config.as_ref().unwrap()(&socket).unwrap();
+
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
     }
 }

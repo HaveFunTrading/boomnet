@@ -5,7 +5,7 @@ use idle::IdleStrategy;
 use std::time::Duration;
 
 fn main() -> anyhow::Result<()> {
-    let mut ws = TcpStream::try_from(("stream.binance.com", 9443))?
+    let mut ws = TcpStream::try_from(("stream.binance.com", 443))?
         .into_tls_stream_with_config(|cfg| cfg.with_no_cert_verification())?
         .into_websocket("/ws?timeUnit=microsecond");
 

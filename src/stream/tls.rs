@@ -43,6 +43,17 @@ pub trait TlsConfigExt {
     /// Disable certificate verification.
     fn with_no_cert_verification(&mut self);
 
+    /// Retain OpenSSL's TLS record buffers while a connection remains open.
+    ///
+    /// [`openssl::ssl::SslConnector`] enables `SSL_MODE_RELEASE_BUFFERS` by default. This reduces
+    /// memory consumption for idle connections, but can cause repeated allocation and deallocation
+    /// when a nonblocking connection is polled continuously.
+    ///
+    /// Retaining the buffers trades a small amount of memory per connection for more deterministic
+    /// receive latency.
+    #[cfg(feature = "openssl")]
+    fn with_retained_buffers(&mut self);
+
     #[cfg(feature = "openssl")]
     /// Try to resolve default certificate paths.
     ///
@@ -102,6 +113,24 @@ impl TlsConfigExt for TlsConfig {
     }
 
     #[cfg(feature = "openssl")]
+    fn with_retained_buffers(&mut self) {
+        // OpenSSL exposes SSL_CTX_clear_mode as a C macro around SSL_CTX_ctrl. openssl-sys does not
+        // currently expose that macro or its control constant directly.
+        const SSL_CTRL_CLEAR_MODE: std::ffi::c_int = 78;
+
+        // SAFETY: The pointer belongs to the live SslConnectorBuilder; SSL_CTX_ctrl does not take
+        // ownership of the context; and the control and mode values are part of OpenSSL's public ABI.
+        unsafe {
+            openssl_sys::SSL_CTX_ctrl(
+                self.openssl_config.as_ptr(),
+                SSL_CTRL_CLEAR_MODE,
+                openssl_sys::SSL_MODE_RELEASE_BUFFERS,
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    #[cfg(feature = "openssl")]
     fn with_default_cert_paths(&mut self) {
         use log::warn;
         use std::path::PathBuf;
@@ -129,6 +158,26 @@ impl TlsConfigExt for TlsConfig {
         {
             warn!("was not able to default ssl paths due to {:?}", e);
         }
+    }
+}
+
+#[cfg(all(test, feature = "openssl"))]
+mod openssl_tests {
+    use super::{TlsConfig, TlsConfigExt};
+    use openssl::ssl::{SslConnector, SslMethod, SslMode};
+
+    #[test]
+    fn retained_buffers_disable_release_buffers_mode() {
+        let builder = SslConnector::builder(SslMethod::tls_client()).unwrap();
+        let mut config = TlsConfig::from(builder);
+
+        let initial_mode = config.as_openssl_mut().set_mode(SslMode::empty());
+        assert!(initial_mode.contains(SslMode::RELEASE_BUFFERS));
+
+        config.with_retained_buffers();
+
+        let retained_mode = config.as_openssl_mut().set_mode(SslMode::empty());
+        assert!(!retained_mode.contains(SslMode::RELEASE_BUFFERS));
     }
 }
 

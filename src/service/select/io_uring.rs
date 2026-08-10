@@ -79,6 +79,8 @@ pub struct IoUringSelector<S> {
     ring: IoUring,
     config: IoUringConfig,
     registrations: HashMap<SelectorToken, Registration>,
+    completions: Vec<(u64, i32, u32)>,
+    rearms: Vec<(SelectorToken, RawFd, Operation)>,
     next_token: SelectorToken,
     phantom: PhantomData<S>,
 }
@@ -97,18 +99,21 @@ impl<S> IoUringSelector<S> {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "io_uring entries must be non-zero"));
         }
 
-        let ring = IoUring::builder().setup_single_issuer().build(config.entries)?;
+        let mut ring = IoUring::builder().setup_single_issuer().build(config.entries)?;
         if let Some(timeout) = config.napi_busy_poll_timeout {
             let mut napi = types::Napi::new()
                 .set_busy_poll_timeout(timeout)
                 .set_prefer_busy_poll(config.prefer_busy_poll);
             ring.submitter().register_napi(&mut napi)?;
         }
+        let completion_capacity = ring.completion().capacity();
 
         Ok(Self {
             ring,
             config,
             registrations: HashMap::new(),
+            completions: Vec::with_capacity(completion_capacity),
+            rearms: Vec::with_capacity(completion_capacity),
             next_token: 0,
             phantom: PhantomData,
         })
@@ -163,13 +168,13 @@ impl<S> IoUringSelector<S> {
         }
     }
 
-    fn completions(&mut self) -> Vec<(u64, i32, u32)> {
-        let mut completions = Vec::new();
+    fn collect_completions(&mut self) {
+        self.completions.clear();
         let mut queue = self.ring.completion();
         for completion in &mut queue {
-            completions.push((completion.user_data(), completion.result(), completion.flags()));
+            self.completions
+                .push((completion.user_data(), completion.result(), completion.flags()));
         }
-        completions
     }
 }
 
@@ -210,10 +215,11 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
 
     fn poll<E>(&mut self, io_nodes: &mut HashMap<SelectorToken, IONode<Self::Target, E>>) -> io::Result<()> {
         self.wait()?;
-        let completions = self.completions();
-        let mut rearms = Vec::new();
+        self.collect_completions();
+        self.rearms.clear();
 
-        for (data, result, flags) in completions {
+        for index in 0..self.completions.len() {
+            let (data, result, flags) = self.completions[index];
             let Some(operation) = Operation::from_user_data(data) else {
                 continue;
             };
@@ -243,22 +249,23 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
                     if io_node.as_stream_mut().connected()? {
                         io_node.as_stream_mut().make_writable()?;
                         self.registrations.get_mut(&token).unwrap().operation = Operation::Read;
-                        rearms.push((token, registration.fd, Operation::Read));
+                        self.rearms.push((token, registration.fd, Operation::Read));
                     } else {
-                        rearms.push((token, registration.fd, Operation::Connect));
+                        self.rearms.push((token, registration.fd, Operation::Connect));
                     }
                 }
                 Operation::Read => {
                     io_node.as_stream_mut().make_readable()?;
                     if !cqueue::more(flags) {
-                        rearms.push((token, registration.fd, Operation::Read));
+                        self.rearms.push((token, registration.fd, Operation::Read));
                     }
                 }
                 Operation::Cancel => unreachable!(),
             }
         }
 
-        for (token, fd, operation) in rearms {
+        for index in 0..self.rearms.len() {
+            let (token, fd, operation) = self.rearms[index];
             if self.registrations.contains_key(&token) {
                 self.arm(token, fd, operation)?;
             }

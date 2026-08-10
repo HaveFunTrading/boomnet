@@ -71,6 +71,8 @@ use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind::WouldBlock;
 use std::io::{Read, Write};
+#[cfg(target_family = "unix")]
+use std::os::fd::{AsRawFd, RawFd};
 use thiserror::Error;
 use url::Url;
 
@@ -293,6 +295,13 @@ impl<S: Selectable> Selectable for Websocket<S> {
 
     fn make_readable(&mut self) -> io::Result<()> {
         self.stream.make_readable()
+    }
+}
+
+#[cfg(target_family = "unix")]
+impl<S: AsRawFd> AsRawFd for Websocket<S> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.stream.as_raw_fd()
     }
 }
 

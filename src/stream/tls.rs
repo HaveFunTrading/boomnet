@@ -15,6 +15,8 @@ use rustls::ClientConfig;
 use std::fmt::Debug;
 use std::io;
 use std::io::{Read, Write};
+#[cfg(target_family = "unix")]
+use std::os::fd::{AsRawFd, RawFd};
 
 /// Used to configure TLS backend.
 pub struct TlsConfig {
@@ -200,6 +202,8 @@ mod __rustls {
     use std::fmt::Debug;
     use std::io;
     use std::io::{Read, Write};
+    #[cfg(target_family = "unix")]
+    use std::os::fd::{AsRawFd, RawFd};
 
     pub struct TlsStream<S> {
         inner: S,
@@ -232,6 +236,13 @@ mod __rustls {
 
         fn make_readable(&mut self) -> io::Result<()> {
             self.inner.make_readable()
+        }
+    }
+
+    #[cfg(target_family = "unix")]
+    impl<S: AsRawFd> AsRawFd for TlsStream<S> {
+        fn as_raw_fd(&self) -> RawFd {
+            self.inner.as_raw_fd()
         }
     }
 
@@ -391,6 +402,8 @@ mod __openssl {
     use std::io;
     use std::io::ErrorKind::WouldBlock;
     use std::io::{Read, Write};
+    #[cfg(target_family = "unix")]
+    use std::os::fd::{AsRawFd, RawFd};
 
     trait SslConnectionBuilderExt {
         fn setup_default_keylog_policy(&mut self);
@@ -479,6 +492,27 @@ mod __openssl {
 
         fn make_readable(&mut self) -> io::Result<()> {
             self.state.get_mut()?.make_readable()
+        }
+    }
+
+    #[cfg(target_family = "unix")]
+    impl<S: AsRawFd> AsRawFd for TlsStream<S> {
+        fn as_raw_fd(&self) -> RawFd {
+            match &self.state {
+                State::Handshake(stream_and_buf) => stream_and_buf
+                    .as_ref()
+                    .expect("TLS stream unavailable during handshake transition")
+                    .0
+                    .get_ref()
+                    .as_raw_fd(),
+                State::Drain(stream_and_buf) => stream_and_buf
+                    .as_ref()
+                    .expect("TLS stream unavailable during drain transition")
+                    .0
+                    .get_ref()
+                    .as_raw_fd(),
+                State::Stream(stream) => stream.get_ref().as_raw_fd(),
+            }
         }
     }
 
@@ -736,6 +770,16 @@ impl<S: Selectable> Selectable for TlsReadyStream<S> {
         match self {
             TlsReadyStream::Plain(stream) => stream.make_readable(),
             TlsReadyStream::Tls(stream) => stream.make_readable(),
+        }
+    }
+}
+
+#[cfg(target_family = "unix")]
+impl<S: AsRawFd> AsRawFd for TlsReadyStream<S> {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            TlsReadyStream::Plain(stream) => stream.as_raw_fd(),
+            TlsReadyStream::Tls(stream) => stream.as_raw_fd(),
         }
     }
 }

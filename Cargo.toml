@@ -1,6 +1,6 @@
 [package]
 name = "boomnet"
-version = "0.0.81"
+version = "0.0.82"
 edition = "2024"
 license = "MIT"
 description = "Framework for building low latency clients on top of TCP."
@@ -17,6 +17,7 @@ all-features = true
 [features]
 default = []
 mio = ["dep:mio"]
+io-uring = ["dep:io-uring"]
 rustls-native = ["rustls", "rustls-native-certs"]
 rustls-webpki = ["rustls", "webpki-roots"]
 openssl = ["dep:openssl", "dep:openssl-probe", "dep:openssl-sys"]
@@ -49,6 +50,7 @@ foreign-types = { version = "0.3.1", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.172"
+io-uring = { version = "0.7.10", optional = true }
 
 [dependencies.webpki-roots]
 version = "0.26.0"
@@ -85,3 +87,7 @@ codegen-units = 1
 name = "latency"
 path = "benches/latency/main.rs"
 harness = false
+
+[[example]]
+name = "io_service_with_io_uring_selector"
+required-features = ["io-uring", "openssl", "ws", "ext"]

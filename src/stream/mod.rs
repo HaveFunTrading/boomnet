@@ -12,6 +12,8 @@ use url::{ParseError, Url};
 
 pub mod buffer;
 pub mod file;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod io_uring;
 #[cfg(all(target_os = "linux", feature = "ktls"))]
 pub mod ktls;
 #[cfg(feature = "mio")]

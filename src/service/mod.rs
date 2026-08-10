@@ -164,7 +164,10 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     /// Deregister [`Endpoint`] with the service based on a handle.
     pub fn deregister(&mut self, handle: Handle) -> Option<E> {
         match self.io_nodes.remove(&handle.0) {
-            Some(io_node) => Some(io_node.into_endpoint().1),
+            Some(mut io_node) => {
+                self.selector.unregister(&mut io_node).unwrap();
+                Some(io_node.into_endpoint().1)
+            }
             None => {
                 let mut index_to_remove = None;
                 for (index, endpoint) in self.pending_endpoints.iter().enumerate() {

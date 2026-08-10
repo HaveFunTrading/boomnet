@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::io;
 
 pub mod direct;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod io_uring;
 #[cfg(feature = "mio")]
 pub mod mio;
 

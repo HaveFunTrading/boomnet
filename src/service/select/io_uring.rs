@@ -136,6 +136,14 @@ impl<S> IoUringSelector<S> {
         unsafe { submission.push(&entry) }.map_err(|_| io::Error::other("io_uring submission queue is full"))
     }
 
+    fn submit_pending(&mut self) -> io::Result<usize> {
+        if self.ring.submission().is_empty() {
+            Ok(0)
+        } else {
+            self.ring.submit()
+        }
+    }
+
     fn arm(&mut self, token: SelectorToken, fd: RawFd, operation: Operation) -> io::Result<()> {
         let flags = match operation {
             Operation::Connect => libc::POLLOUT | libc::POLLERR | libc::POLLHUP,
@@ -149,15 +157,15 @@ impl<S> IoUringSelector<S> {
         self.push(entry)
     }
 
-    fn wait(&self) -> io::Result<usize> {
+    fn wait(&mut self) -> io::Result<usize> {
         if self.registrations.is_empty() {
-            return self.ring.submit();
+            return self.submit_pending();
         }
         let Some(timeout) = self.config.wait_timeout else {
-            return self.ring.submit();
+            return self.submit_pending();
         };
         if timeout.is_zero() {
-            return self.ring.submit();
+            return self.submit_pending();
         }
 
         let timespec = types::Timespec::from(timeout);
@@ -270,9 +278,7 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
                 self.arm(token, fd, operation)?;
             }
         }
-        if !self.registrations.is_empty() {
-            self.ring.submit()?;
-        }
+        self.submit_pending()?;
         Ok(())
     }
 

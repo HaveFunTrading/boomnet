@@ -1,7 +1,7 @@
 //! Provides TLS stream implementation for different backends.
 
 use crate::service::select::Selectable;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
 #[cfg(feature = "openssl")]
 pub use __openssl::TlsStream;
 #[cfg(all(feature = "rustls", not(feature = "openssl")))]
@@ -187,7 +187,7 @@ mod openssl_tests {
 mod __rustls {
     use crate::service::select::Selectable;
     use crate::stream::tls::TlsConfig;
-    use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+    use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
     use crate::util::NoBlock;
     #[cfg(feature = "mio")]
     use mio::{Interest, Registry, Token, event::Source};
@@ -236,6 +236,16 @@ mod __rustls {
 
         fn make_readable(&mut self) -> io::Result<()> {
             self.inner.make_readable()
+        }
+    }
+
+    impl<S> ReadHint for TlsStream<S> {
+        #[inline]
+        fn read_hint(&self) -> bool {
+            // rustls can hold decrypted plaintext independently of the
+            // underlying transport. Until that state is exposed precisely,
+            // preserve its existing eager-read behavior.
+            true
         }
     }
 
@@ -390,7 +400,7 @@ mod __rustls {
 mod __openssl {
     use crate::service::select::Selectable;
     use crate::stream::tls::TlsConfig;
-    use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+    use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
     #[cfg(feature = "mio")]
     use mio::{Interest, Registry, Token, event::Source};
     use openssl::ssl::{
@@ -492,6 +502,16 @@ mod __openssl {
 
         fn make_readable(&mut self) -> io::Result<()> {
             self.state.get_mut()?.make_readable()
+        }
+    }
+
+    impl<S: ReadHint> ReadHint for TlsStream<S> {
+        #[inline]
+        fn read_hint(&self) -> bool {
+            match &self.state {
+                State::Handshake(_) | State::Drain(_) => true,
+                State::Stream(stream) => stream.ssl().pending() > 0 || stream.get_ref().read_hint(),
+            }
         }
     }
 
@@ -691,6 +711,16 @@ where
 pub enum TlsReadyStream<S> {
     Plain(S),
     Tls(TlsStream<S>),
+}
+
+impl<S: ReadHint> ReadHint for TlsReadyStream<S> {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        match self {
+            TlsReadyStream::Plain(stream) => stream.read_hint(),
+            TlsReadyStream::Tls(stream) => stream.read_hint(),
+        }
+    }
 }
 
 impl<S: Read + Write> Read for TlsReadyStream<S> {

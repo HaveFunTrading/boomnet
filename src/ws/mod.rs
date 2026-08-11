@@ -27,9 +27,10 @@
 //! Receive messages in a batch for optimal performance.
 //!```no_run
 //! use std::io::{Read, Write};
+//! use boomnet::stream::ReadHint;
 //! use boomnet::ws::{Websocket, WebsocketFrame};
 //!
-//! fn consume_batch<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+//! fn consume_batch<S: Read + Write + ReadHint>(ws: &mut Websocket<S>) -> std::io::Result<()> {
 //!    for frame in ws.read_batch()? {
 //!      if let WebsocketFrame::Text(fin, body) = frame? {
 //!        println!("({fin}) {}", String::from_utf8_lossy(body));
@@ -42,9 +43,10 @@
 //! Receive messages at most one at a tine. If possible, use batch mode instead.
 //!```no_run
 //! use std::io::{Read, Write};
+//! use boomnet::stream::ReadHint;
 //! use boomnet::ws::{Websocket, WebsocketFrame};
 //!
-//! fn consume_individually<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+//! fn consume_individually<S: Read + Write + ReadHint>(ws: &mut Websocket<S>) -> std::io::Result<()> {
 //!   if let Some(frame) = ws.receive_next() {
 //!     if let WebsocketFrame::Text(fin, body) = frame? {
 //!       println!("({fin}) {}", String::from_utf8_lossy(body));
@@ -59,7 +61,7 @@ use crate::service::select::Selectable;
 use crate::stream::tcp::TcpStream;
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 use crate::stream::tls::{IntoTlsStream, TlsReadyStream, TlsStream};
-use crate::stream::{BindAndConnect, ConnectionInfoProvider};
+use crate::stream::{BindAndConnect, ConnectionInfoProvider, ReadHint};
 use crate::util::NoBlock;
 use crate::ws::Error::{Closed, ReceivedCloseFrame};
 use crate::ws::decoder::Decoder;
@@ -152,7 +154,7 @@ impl<S> Websocket<S> {
     }
 }
 
-impl<S: Read + Write> Websocket<S> {
+impl<S: Read + Write + ReadHint> Websocket<S> {
     /// Allows to decode and iterate over incoming messages in a batch efficient way. It will perform
     /// single network read operation if there is no more data available for processing. It is possible
     /// to receive more than one message from a single network read and when no messages are available
@@ -163,9 +165,10 @@ impl<S: Read + Write> Websocket<S> {
     /// Process incoming frames in a batch using iterator,
     /// ```no_run
     /// use std::io::{Read, Write};
+    /// use boomnet::stream::ReadHint;
     /// use boomnet::ws::{Websocket, WebsocketFrame};
     ///
-    /// fn process<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+    /// fn process<S: Read + Write + ReadHint>(ws: &mut Websocket<S>) -> std::io::Result<()> {
     ///     for frame in ws.read_batch()? {
     ///         if let (WebsocketFrame::Text(fin, data)) = frame? {
     ///             println!("({fin}) {}", String::from_utf8_lossy(data));
@@ -178,9 +181,10 @@ impl<S: Read + Write> Websocket<S> {
     /// Read frames one by one without iterator,
     /// ```no_run
     /// use std::io::{Read, Write};
+    /// use boomnet::stream::ReadHint;
     /// use boomnet::ws::{Websocket, WebsocketFrame};
     ///
-    /// fn process<S: Read + Write>(ws: &mut Websocket<S>) -> std::io::Result<()> {
+    /// fn process<S: Read + Write + ReadHint>(ws: &mut Websocket<S>) -> std::io::Result<()> {
     ///     let mut batch = ws.read_batch()?;
     ///     while let Some(frame) = batch.receive_next() {
     ///         if let (WebsocketFrame::Text(fin, data)) = frame? {
@@ -208,7 +212,9 @@ impl<S: Read + Write> Websocket<S> {
             Err(err) => Some(Err(err)),
         }
     }
+}
 
+impl<S: Read + Write> Websocket<S> {
     #[inline]
     pub fn send_text(&mut self, fin: bool, body: Option<&[u8]>) -> Result<(), Error> {
         self.send(fin, protocol::op::TEXT_FRAME, body)
@@ -324,7 +330,7 @@ impl State {
 
 impl State {
     #[inline]
-    fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+    fn read<S: Read + ReadHint>(&mut self, stream: &mut S) -> io::Result<()> {
         match self {
             State::Handshake(handshake, _) => handshake.read(stream),
             State::Connection(decoder) => decoder.read(stream),
@@ -489,5 +495,90 @@ where
         }?;
 
         Ok(Websocket::new(tls_ready_stream, &endpoint))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Websocket, WebsocketFrame};
+    use crate::stream::ReadHint;
+    use std::cell::Cell;
+    use std::cmp::min;
+    use std::io::{self, Read, Write};
+    use std::rc::Rc;
+
+    #[derive(Debug)]
+    struct HintStream {
+        bytes: Vec<u8>,
+        cursor: usize,
+        hint: Rc<Cell<bool>>,
+        reads: Rc<Cell<usize>>,
+    }
+
+    impl ReadHint for HintStream {
+        fn read_hint(&self) -> bool {
+            self.hint.get()
+        }
+    }
+
+    impl Read for HintStream {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.reads.set(self.reads.get() + 1);
+            let length = min(buffer.len(), self.bytes.len() - self.cursor);
+            buffer[..length].copy_from_slice(&self.bytes[self.cursor..self.cursor + length]);
+            self.cursor += length;
+            Ok(length)
+        }
+    }
+
+    impl Write for HintStream {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn stream(bytes: &[u8], hint: bool) -> (HintStream, Rc<Cell<bool>>, Rc<Cell<usize>>) {
+        let hint = Rc::new(Cell::new(hint));
+        let reads = Rc::new(Cell::new(0));
+        (
+            HintStream {
+                bytes: bytes.to_vec(),
+                cursor: 0,
+                hint: hint.clone(),
+                reads: reads.clone(),
+            },
+            hint,
+            reads,
+        )
+    }
+
+    #[test]
+    fn false_read_hint_returns_empty_batch_without_reading() {
+        let (stream, _, reads) = stream(&[], false);
+        let mut websocket = Websocket::new_with_handshake_complete(stream);
+
+        assert!(websocket.read_batch().unwrap().receive_next().is_none());
+        assert_eq!(reads.get(), 0);
+    }
+
+    #[test]
+    fn false_read_hint_does_not_hide_buffered_websocket_frames() {
+        let (stream, hint, reads) = stream(&[0x81, 0x01, b'a', 0x81, 0x01, b'b'], true);
+        let mut websocket = Websocket::new_with_handshake_complete(stream);
+
+        {
+            let mut first_batch = websocket.read_batch().unwrap();
+            let first = first_batch.receive_next().unwrap().unwrap();
+            assert!(matches!(first, WebsocketFrame::Text(true, b"a")));
+        }
+
+        hint.set(false);
+        let second = websocket.read_batch().unwrap().receive_next().unwrap().unwrap();
+        assert!(matches!(second, WebsocketFrame::Text(true, b"b")));
+        assert_eq!(reads.get(), 1);
     }
 }

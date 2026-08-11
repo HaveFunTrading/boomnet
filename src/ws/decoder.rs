@@ -1,4 +1,5 @@
 use crate::buffer::{BufferPoolRef, OwnedReadBuffer};
+use crate::stream::ReadHint;
 use crate::util::into_array;
 use crate::ws::{Error, WebsocketFrame, protocol};
 use std::io;
@@ -36,8 +37,11 @@ impl Decoder {
     }
 
     #[inline]
-    pub fn read<S: Read>(&mut self, stream: &mut S) -> io::Result<()> {
+    pub fn read<S: Read + ReadHint>(&mut self, stream: &mut S) -> io::Result<()> {
         if self.needs_more_data {
+            if !stream.read_hint() {
+                return Ok(());
+            }
             self.buffer.read_all_from(stream)?;
             self.needs_more_data = false;
         }

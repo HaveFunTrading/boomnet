@@ -1,7 +1,7 @@
 //! Readiness-gated TCP stream for [`IoUringSelector`](crate::service::select::io_uring::IoUringSelector).
 
 use crate::service::select::Selectable;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
 use std::io::ErrorKind::{Interrupted, NotConnected, WouldBlock, WriteZero};
 use std::io::{self, Read, Write};
 use std::net;
@@ -87,6 +87,13 @@ impl Selectable for IoUringStream {
     fn make_readable(&mut self) -> io::Result<()> {
         self.can_read = true;
         Ok(())
+    }
+}
+
+impl ReadHint for IoUringStream {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        self.can_read
     }
 }
 

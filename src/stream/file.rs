@@ -4,6 +4,8 @@ use std::io;
 use std::io::ErrorKind::UnexpectedEof;
 use std::io::{BufReader, Read, Write};
 
+use crate::stream::ReadHint;
+
 pub struct FileStream<const CHUNK_SIZE: usize = 256>(BufReader<File>);
 
 impl<const CHUNK_SIZE: usize> Read for FileStream<CHUNK_SIZE> {
@@ -15,6 +17,13 @@ impl<const CHUNK_SIZE: usize> Read for FileStream<CHUNK_SIZE> {
             Ok(n) => Ok(n),
             Err(err) => Err(err),
         }
+    }
+}
+
+impl<const CHUNK_SIZE: usize> ReadHint for FileStream<CHUNK_SIZE> {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        true
     }
 }
 

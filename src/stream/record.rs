@@ -1,7 +1,7 @@
 //! Stream that will also record incoming and outgoing data to a file.
 //!
 
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::io;
@@ -76,6 +76,13 @@ impl<S: Read + Write> Read for RecordedStream<S> {
         let read = self.inner.read(buf)?;
         self.recorder.record_inbound(&buf[..read], seq)?;
         Ok(read)
+    }
+}
+
+impl<S: ReadHint> ReadHint for RecordedStream<S> {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        self.inner.read_hint()
     }
 }
 

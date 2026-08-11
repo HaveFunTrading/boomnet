@@ -1,7 +1,7 @@
 //! Wrapper over `std::net::TcpStream`.
 
 use crate::service::select::Selectable;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
 use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -109,6 +109,13 @@ impl Selectable for TcpStream {
 
     fn make_readable(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+impl ReadHint for TcpStream {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        true
     }
 }
 

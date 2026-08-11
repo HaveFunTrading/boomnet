@@ -4,7 +4,7 @@ use crate::service::select::Selectable;
 use crate::stream::ktls::error::Error;
 use crate::stream::ktls::net::peer_addr;
 use crate::stream::tls::TlsConfig;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
 use foreign_types::ForeignType;
 #[cfg(feature = "mio")]
 use mio::{Interest, Registry, Token, event::Source};
@@ -146,6 +146,16 @@ enum State {
 impl<S: ConnectionInfoProvider> ConnectionInfoProvider for KtlsStream<S> {
     fn connection_info(&self) -> &ConnectionInfo {
         self.stream.connection_info()
+    }
+}
+
+impl<S: ReadHint> ReadHint for KtlsStream<S> {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        match self.state {
+            State::Ready => self.ssl.pending() > 0 || self.stream.read_hint(),
+            State::Connecting | State::Handshake | State::Drain(_) => true,
+        }
     }
 }
 

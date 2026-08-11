@@ -1,6 +1,6 @@
 //! Stream that uses file replay.
 
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::fs::File;
@@ -65,6 +65,13 @@ impl<S: Read> Read for ReplayStream<S> {
         }
 
         Ok(actual_read)
+    }
+}
+
+impl<S> ReadHint for ReplayStream<S> {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        true
     }
 }
 

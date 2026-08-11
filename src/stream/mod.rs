@@ -24,6 +24,16 @@ pub mod tcp;
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 pub mod tls;
 
+/// Advisory hint indicating whether an immediate read attempt may make progress.
+///
+/// A `true` value is not a guarantee that [`std::io::Read::read`] will return
+/// data. A `false` value allows protocol layers to avoid an otherwise known-empty
+/// read attempt.
+pub trait ReadHint {
+    /// Returns whether an immediate read attempt may make progress.
+    fn read_hint(&self) -> bool;
+}
+
 #[cfg(target_os = "linux")]
 const EINPROGRESS: i32 = 115;
 #[cfg(target_os = "macos")]
@@ -246,6 +256,13 @@ impl Selectable for TcpStream {
 
     fn make_readable(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+impl ReadHint for TcpStream {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        true
     }
 }
 

@@ -1,7 +1,7 @@
 //! Stream that can be used together with `MioSelector`.
 
 use crate::service::select::Selectable;
-use crate::stream::{ConnectionInfo, ConnectionInfoProvider};
+use crate::stream::{ConnectionInfo, ConnectionInfoProvider, ReadHint};
 use mio::event::Source;
 use mio::net::TcpStream;
 use mio::{Interest, Registry, Token};
@@ -67,6 +67,15 @@ impl Selectable for MioStream {
     fn make_readable(&mut self) -> io::Result<()> {
         self.can_read = true;
         Ok(())
+    }
+}
+
+impl ReadHint for MioStream {
+    #[inline]
+    fn read_hint(&self) -> bool {
+        // Preserve the existing Mio behavior. Its readiness flag currently
+        // clears after a short read and is therefore not a safe negative hint.
+        true
     }
 }
 

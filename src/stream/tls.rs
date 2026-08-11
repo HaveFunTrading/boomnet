@@ -441,6 +441,7 @@ mod __openssl {
     #[derive(Debug)]
     pub struct TlsStream<S> {
         state: State<S>,
+        plaintext_pending: bool,
     }
 
     #[derive(Debug)]
@@ -510,7 +511,7 @@ mod __openssl {
         fn read_hint(&self) -> bool {
             match &self.state {
                 State::Handshake(_) | State::Drain(_) => true,
-                State::Stream(stream) => stream.ssl().pending() > 0 || stream.get_ref().read_hint(),
+                State::Stream(stream) => self.plaintext_pending || stream.get_ref().read_hint(),
             }
         }
     }
@@ -573,6 +574,7 @@ mod __openssl {
                     let remaining = &buffer[from..];
                     if remaining.is_empty() {
                         stream.flush()?;
+                        self.plaintext_pending = stream.ssl().pending() > 0;
                         self.state = State::Stream(stream);
                     } else {
                         from += stream.write(remaining)?;
@@ -580,7 +582,11 @@ mod __openssl {
                     }
                     Err(io::Error::from(WouldBlock))
                 }
-                State::Stream(stream) => stream.read(buf),
+                State::Stream(stream) => {
+                    let result = stream.read(buf);
+                    self.plaintext_pending = stream.ssl().pending() > 0;
+                    result
+                }
             }
         }
     }
@@ -627,11 +633,16 @@ mod __openssl {
 
             let connector = tls_config.openssl_config.build();
             match connector.connect(server_name, stream) {
-                Ok(stream) => Ok(Self {
-                    state: State::Stream(stream),
-                }),
+                Ok(stream) => {
+                    let plaintext_pending = stream.ssl().pending() > 0;
+                    Ok(Self {
+                        state: State::Stream(stream),
+                        plaintext_pending,
+                    })
+                }
                 Err(HandshakeError::WouldBlock(mid_handshake)) => Ok(Self {
                     state: State::Handshake(Some((mid_handshake, Vec::with_capacity(4096)))),
+                    plaintext_pending: false,
                 }),
                 Err(e) => Err(io::Error::other(e.to_string())),
             }

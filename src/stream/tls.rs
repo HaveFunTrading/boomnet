@@ -442,6 +442,7 @@ mod __openssl {
     pub struct TlsStream<S> {
         state: State<S>,
         plaintext_pending: bool,
+        transport_readable: bool,
     }
 
     #[derive(Debug)]
@@ -502,7 +503,9 @@ mod __openssl {
         }
 
         fn make_readable(&mut self) -> io::Result<()> {
-            self.state.get_mut()?.make_readable()
+            self.state.get_mut()?.make_readable()?;
+            self.transport_readable = true;
+            Ok(())
         }
     }
 
@@ -511,7 +514,7 @@ mod __openssl {
         fn read_hint(&self) -> bool {
             match &self.state {
                 State::Handshake(_) | State::Drain(_) => true,
-                State::Stream(stream) => self.plaintext_pending || stream.get_ref().read_hint(),
+                State::Stream(_) => self.plaintext_pending || self.transport_readable,
             }
         }
     }
@@ -537,7 +540,7 @@ mod __openssl {
         }
     }
 
-    impl<S: Read + Write> Read for TlsStream<S> {
+    impl<S: Read + Write + ReadHint> Read for TlsStream<S> {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             match &mut self.state {
                 State::Handshake(stream_and_buf) => {
@@ -575,6 +578,7 @@ mod __openssl {
                     if remaining.is_empty() {
                         stream.flush()?;
                         self.plaintext_pending = stream.ssl().pending() > 0;
+                        self.transport_readable = true;
                         self.state = State::Stream(stream);
                     } else {
                         from += stream.write(remaining)?;
@@ -585,6 +589,7 @@ mod __openssl {
                 State::Stream(stream) => {
                     let result = stream.read(buf);
                     self.plaintext_pending = stream.ssl().pending() > 0;
+                    self.transport_readable = stream.get_ref().read_hint();
                     result
                 }
             }
@@ -638,11 +643,13 @@ mod __openssl {
                     Ok(Self {
                         state: State::Stream(stream),
                         plaintext_pending,
+                        transport_readable: true,
                     })
                 }
                 Err(HandshakeError::WouldBlock(mid_handshake)) => Ok(Self {
                     state: State::Handshake(Some((mid_handshake, Vec::with_capacity(4096)))),
                     plaintext_pending: false,
+                    transport_readable: true,
                 }),
                 Err(e) => Err(io::Error::other(e.to_string())),
             }
@@ -734,7 +741,7 @@ impl<S: ReadHint> ReadHint for TlsReadyStream<S> {
     }
 }
 
-impl<S: Read + Write> Read for TlsReadyStream<S> {
+impl<S: Read + Write + ReadHint> Read for TlsReadyStream<S> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             TlsReadyStream::Plain(stream) => stream.read(buf),

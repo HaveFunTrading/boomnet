@@ -282,6 +282,7 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
         Ok(())
     }
 
+    #[inline]
     fn next_token(&mut self) -> SelectorToken {
         let token = self.next_token;
         self.next_token = self.next_token.wrapping_add(1);

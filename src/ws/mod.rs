@@ -446,7 +446,7 @@ pub trait IntoTlsWebsocket {
 #[cfg(any(feature = "rustls", feature = "openssl"))]
 impl<T> IntoTlsWebsocket for T
 where
-    T: Read + Write + Debug + ConnectionInfoProvider,
+    T: Read + Write + Debug + ConnectionInfoProvider + ReadHint,
 {
     fn into_tls_websocket(self, endpoint: &str) -> io::Result<Websocket<TlsStream<Self>>>
     where

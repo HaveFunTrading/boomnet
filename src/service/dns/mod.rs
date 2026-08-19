@@ -2,7 +2,7 @@
 //!
 //! ## Examples
 //! Blocking resolver.
-//!```no_run
+//! ```no_run
 //! use std::io;
 //! use boomnet::service::dns::{DnsQuery, DnsResolver, BlockingDnsResolver};
 //!
@@ -33,6 +33,29 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! Caller-driven asynchronous resolver. This requires the `c-ares` feature and
+//! performs DNS I/O on the thread calling [`DnsQuery::poll`].
+//! ```no_run
+//! # #[cfg(feature = "c-ares")]
+//! # {
+//! use std::io::{self, ErrorKind};
+//! use boomnet::service::dns::{CaresDnsResolver, DnsQuery, DnsResolver};
+//!
+//! fn main() -> io::Result<()> {
+//!     let r = CaresDnsResolver::new();
+//!     let mut q = r.new_query("example.com", 80)?;
+//!     loop {
+//!         match q.poll() {
+//!             Ok(addrs) => { for a in addrs { println!("{a}"); } break; }
+//!             Err(e) if e.kind() == ErrorKind::WouldBlock => { /* try again later */ }
+//!             Err(e) => return Err(e),
+//!         }
+//!     }
+//!     Ok(())
+//! }
+//! # }
+//! ```
 
 use core_affinity::CoreId;
 use log::info;
@@ -45,6 +68,11 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::TryRecvError;
 use std::thread::JoinHandle;
 use std::{io, thread};
+
+#[cfg(feature = "c-ares")]
+mod cares;
+#[cfg(feature = "c-ares")]
+pub use cares::{CaresDnsQuery, CaresDnsResolver};
 
 const MAX_ADDRS_PER_QUERY: usize = 32;
 const MAX_HOSTNAME_LEN_BEFORE_SPILL: usize = 64;

@@ -7,6 +7,7 @@ use mio::{Interest, Registry, Token, event::Source};
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::mem::MaybeUninit;
+use std::os::fd::{AsRawFd, RawFd};
 
 /// Default buffer size in bytes.
 pub const DEFAULT_BUFFER_SIZE: usize = 1024;
@@ -51,6 +52,12 @@ pub struct BufferedStream<S, const N: usize = DEFAULT_BUFFER_SIZE> {
     inner: S,
     buffer: [u8; N],
     cursor: usize,
+}
+
+impl <S: AsRawFd> AsRawFd for BufferedStream<S> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.inner.as_raw_fd()
+    }
 }
 
 impl<S: Read, const N: usize> Read for BufferedStream<S, N> {

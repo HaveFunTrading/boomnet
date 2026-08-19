@@ -351,21 +351,23 @@ where
         Ok(())
     }
 
-    /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
-    /// endpoint is currently active `Ok(Some(...))` will be returned and the provided `action` invoked,
-    /// otherwise this method will return `Ok(None)` and no `action` will be invoked.
-    pub fn dispatch<F, T>(&mut self, handle: Handle, mut action: F) -> io::Result<Option<T>>
+    /// Dispatch an `action` to an active endpoint using `handle`.
+    ///
+    /// If the endpoint has a socket descriptor, the `action` is invoked
+    /// and its result returned.
+    ///
+    /// Returns `std::io::Error` with `ErrorKind::NotConnected` while the endpoint is
+    /// awaiting resolution by [DnsResolver].
+    pub fn dispatch<F, T>(&mut self, handle: Handle, mut action: F) -> io::Result<T>
     where
         F: FnMut(&mut E::Target, &mut E) -> std::io::Result<T>,
     {
-        match self.io_nodes.get_mut(&handle.0) {
-            Some(io_node) => {
-                let (stream, (_, endpoint)) = io_node.as_parts_mut();
-                let result = action(stream, endpoint)?;
-                Ok(Some(result))
-            }
-            None => Ok(None),
-        }
+        let io_node = self
+            .io_nodes
+            .get_mut(&handle.0)
+            .ok_or(io::Error::new(ErrorKind::NotConnected, ""))?;
+        let (stream, (_, endpoint)) = io_node.as_parts_mut();
+        action(stream, endpoint)
     }
 }
 

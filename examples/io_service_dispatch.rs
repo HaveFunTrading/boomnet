@@ -1,6 +1,7 @@
 use crate::common::TradeEndpoint;
 use boomnet::service::IntoIOService;
 use boomnet::service::select::mio::MioSelector;
+use std::io::ErrorKind;
 
 #[path = "common/mod.rs"]
 mod common;
@@ -16,14 +17,10 @@ fn main() -> anyhow::Result<()> {
 
     // we delay the subscription until the endpoint is ready
     loop {
-        let success = io_service.dispatch(handle, |ws, endpoint| {
-            endpoint.subscribe(ws)?;
-            Ok(())
-        })?;
-        if success.is_some() {
-            break;
-        } else {
-            io_service.poll(|ws, endpoint| endpoint.poll(ws))?;
+        match io_service.dispatch(handle, |ws, endpoint| endpoint.subscribe(ws)) {
+            Ok(_) => break,
+            Err(err) if err.kind() == ErrorKind::NotConnected => io_service.poll(|ws, endpoint| endpoint.poll(ws))?,
+            Err(err) => Err(err)?,
         }
     }
 

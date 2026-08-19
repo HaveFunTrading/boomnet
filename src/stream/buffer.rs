@@ -54,7 +54,7 @@ pub struct BufferedStream<S, const N: usize = DEFAULT_BUFFER_SIZE> {
     cursor: usize,
 }
 
-impl <S: AsRawFd> AsRawFd for BufferedStream<S> {
+impl<S: AsRawFd> AsRawFd for BufferedStream<S> {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.as_raw_fd()
     }

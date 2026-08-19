@@ -1,12 +1,19 @@
-use crate::common::{FeedContext, TradeEndpoint};
-use boomnet::service::IntoIOServiceWithContext;
-use boomnet::service::dns::CaresDnsResolver;
-use boomnet::service::select::mio::MioSelector;
-use std::time::Duration;
-
 #[path = "common/mod.rs"]
 mod common;
 
+#[cfg(all(feature = "c-ares", feature = "mio"))]
+mod deps {
+    pub use crate::common::{FeedContext, TradeEndpoint};
+    pub use boomnet::service::IntoIOServiceWithContext;
+    pub use boomnet::service::dns::CaresDnsResolver;
+    pub use boomnet::service::select::mio::MioSelector;
+    pub use std::time::Duration;
+}
+
+#[cfg(all(feature = "c-ares", feature = "mio"))]
+use deps::*;
+
+#[cfg(all(feature = "c-ares", feature = "mio"))]
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
@@ -29,3 +36,6 @@ fn main() -> anyhow::Result<()> {
         io_service.poll(&mut ctx, |ws, ctx, endpoint| endpoint.poll_ctx(ws, ctx))?;
     }
 }
+
+#[cfg(not(all(feature = "c-ares", feature = "mio")))]
+fn main() {}

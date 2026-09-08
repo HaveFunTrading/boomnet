@@ -201,7 +201,7 @@ impl<'a, T, E> Iterator for IOServiceEvents<'a, T, E> {
                     }
                     return Some(IOServiceEvent::Active(ActiveEndpoint {
                         handle: node.endpoint.0,
-                        target: &mut node.stream,
+                        target: &mut node.target,
                         pending_disconnect: &mut node.pending_disconnect,
                     }));
                 }
@@ -370,21 +370,21 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
         }
     }
 
-    /// Return iterator over active endpoints, additionally exposing handle and the stream.
+    /// Return iterator over active endpoints, additionally exposing handle and the target.
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (Handle, &S::Target, &E)> {
         self.io_nodes.values().map(|io_node| {
-            let (stream, (handle, endpoint)) = io_node.as_parts();
-            (*handle, stream, endpoint)
+            let (target, (handle, endpoint)) = io_node.as_parts();
+            (*handle, target, endpoint)
         })
     }
 
-    /// Return mutable iterator over active endpoints, additionally exposing handle and the stream.
+    /// Return mutable iterator over active endpoints, additionally exposing handle and the target.
     #[inline]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut S::Target, &mut E)> {
         self.io_nodes.values_mut().map(|io_node| {
-            let (stream, (handle, endpoint)) = io_node.as_parts_mut();
-            (*handle, stream, endpoint)
+            let (target, (handle, endpoint)) = io_node.as_parts_mut();
+            (*handle, target, endpoint)
         })
     }
 
@@ -438,9 +438,9 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
                     match create_target(&mut endpoint, addr)
                         .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::CreateTarget, source))?
                     {
-                        Some(stream) => {
+                        Some(target) => {
                             let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                            let mut io_node = IONode::new(stream, handle, endpoint, ttl, &self.time_source);
+                            let mut io_node = IONode::new(target, handle, endpoint, ttl, &self.time_source);
                             self.selector.register(handle.0, &mut io_node).map_err(|source| {
                                 IOServiceError::io(Some(handle), IOServiceOperation::Register, source)
                             })?;
@@ -629,8 +629,8 @@ where
     {
         match self.io_nodes.get_mut(handle.0) {
             Some(io_node) => {
-                let (stream, (_, endpoint)) = io_node.as_parts_mut();
-                let result = action(stream, endpoint)?;
+                let (target, (_, endpoint)) = io_node.as_parts_mut();
+                let result = action(target, endpoint)?;
                 Ok(Some(result))
             }
             None => Ok(None),
@@ -699,8 +699,8 @@ where
     {
         match self.io_nodes.get_mut(handle.0) {
             Some(io_node) => {
-                let (stream, (_, endpoint)) = io_node.as_parts_mut();
-                let result = action(stream, endpoint, ctx)?;
+                let (target, (_, endpoint)) = io_node.as_parts_mut();
+                let result = action(target, endpoint, ctx)?;
                 Ok(Some(result))
             }
             None => Ok(None),

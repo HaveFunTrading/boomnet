@@ -4,8 +4,8 @@ use crate::service::select::SelectorToken;
 use crate::service::time::TimeSource;
 use std::time::Duration;
 
-pub struct IONode<S, E> {
-    pub stream: S,
+pub struct IONode<T, E> {
+    pub target: T,
     pub endpoint: (Handle, E),
     pub ttl: Duration,
     pub disconnect_time_ns: u64,
@@ -13,13 +13,13 @@ pub struct IONode<S, E> {
 }
 
 /// Token-indexed storage for active I/O nodes.
-pub struct IONodes<S, E> {
-    slots: Vec<Option<IONode<S, E>>>,
+pub struct IONodes<T, E> {
+    slots: Vec<Option<IONode<T, E>>>,
 }
 
 const MIN_IO_NODE_SLOTS: usize = 4;
 
-impl<S, E> Default for IONodes<S, E> {
+impl<T, E> Default for IONodes<T, E> {
     fn default() -> Self {
         Self {
             slots: Vec::with_capacity(MIN_IO_NODE_SLOTS),
@@ -27,8 +27,8 @@ impl<S, E> Default for IONodes<S, E> {
     }
 }
 
-impl<S, E> IONodes<S, E> {
-    pub fn insert(&mut self, token: SelectorToken, node: IONode<S, E>) -> Result<(), IONode<S, E>> {
+impl<T, E> IONodes<T, E> {
+    pub fn insert(&mut self, token: SelectorToken, node: IONode<T, E>) -> Result<(), IONode<T, E>> {
         let index = token as usize;
         if index >= self.slots.len() {
             self.slots.resize_with(index + 1, || None);
@@ -42,16 +42,16 @@ impl<S, E> IONodes<S, E> {
     }
 
     #[inline]
-    pub fn get(&self, token: SelectorToken) -> Option<&IONode<S, E>> {
+    pub fn get(&self, token: SelectorToken) -> Option<&IONode<T, E>> {
         self.slots.get(token as usize)?.as_ref()
     }
 
     #[inline]
-    pub fn get_mut(&mut self, token: SelectorToken) -> Option<&mut IONode<S, E>> {
+    pub fn get_mut(&mut self, token: SelectorToken) -> Option<&mut IONode<T, E>> {
         self.slots.get_mut(token as usize)?.as_mut()
     }
 
-    pub fn remove(&mut self, token: SelectorToken) -> Option<IONode<S, E>> {
+    pub fn remove(&mut self, token: SelectorToken) -> Option<IONode<T, E>> {
         let node = self.slots.get_mut(token as usize)?.take()?;
         while self.slots.last().is_some_and(Option::is_none) {
             self.slots.pop();
@@ -60,29 +60,29 @@ impl<S, E> IONodes<S, E> {
     }
 
     #[inline]
-    pub fn values(&self) -> impl Iterator<Item = &IONode<S, E>> {
+    pub fn values(&self) -> impl Iterator<Item = &IONode<T, E>> {
         self.slots.iter().flatten()
     }
 
     #[inline]
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut IONode<S, E>> {
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut IONode<T, E>> {
         self.slots.iter_mut().flatten()
     }
 
     #[inline]
-    pub fn slots_mut(&mut self) -> std::slice::IterMut<'_, Option<IONode<S, E>>> {
+    pub fn slots_mut(&mut self) -> std::slice::IterMut<'_, Option<IONode<T, E>>> {
         self.slots.iter_mut()
     }
 }
 
-impl<S, E> IONode<S, E> {
-    pub fn new<TS>(stream: S, handle: Handle, endpoint: E, ttl: Option<Duration>, ts: &TS) -> IONode<S, E>
+impl<T, E> IONode<T, E> {
+    pub fn new<TS>(target: T, handle: Handle, endpoint: E, ttl: Option<Duration>, ts: &TS) -> IONode<T, E>
     where
         TS: TimeSource,
     {
         let ttl = ttl.map_or(u64::MAX, |ttl| ttl.as_nanos() as u64);
         Self {
-            stream,
+            target,
             endpoint: (handle, endpoint),
             ttl: Duration::from_nanos(ttl),
             disconnect_time_ns: ts.current_time_nanos().saturating_add(ttl),
@@ -91,23 +91,23 @@ impl<S, E> IONode<S, E> {
     }
 
     #[inline]
-    pub const fn as_parts(&self) -> (&S, &(Handle, E)) {
-        (&self.stream, &self.endpoint)
+    pub const fn as_parts(&self) -> (&T, &(Handle, E)) {
+        (&self.target, &self.endpoint)
     }
 
     #[inline]
-    pub const fn as_parts_mut(&mut self) -> (&mut S, &mut (Handle, E)) {
-        (&mut self.stream, &mut self.endpoint)
+    pub const fn as_parts_mut(&mut self) -> (&mut T, &mut (Handle, E)) {
+        (&mut self.target, &mut self.endpoint)
     }
 
     #[inline]
-    pub const fn as_stream(&self) -> &S {
-        &self.stream
+    pub const fn as_target(&self) -> &T {
+        &self.target
     }
 
     #[inline]
-    pub const fn as_stream_mut(&mut self) -> &mut S {
-        &mut self.stream
+    pub const fn as_target_mut(&mut self) -> &mut T {
+        &mut self.target
     }
 
     #[inline]

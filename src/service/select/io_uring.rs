@@ -190,7 +190,7 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
     type Target = S;
 
     fn register<E>(&mut self, token: SelectorToken, io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
-        let fd = io_node.as_stream().as_raw_fd();
+        let fd = io_node.as_target().as_raw_fd();
         self.arm(token, fd, Operation::Connect)?;
         self.ring.submit()?;
         self.registrations.insert(
@@ -204,7 +204,7 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
     }
 
     fn unregister<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
-        let fd = io_node.as_stream().as_raw_fd();
+        let fd = io_node.as_target().as_raw_fd();
         let Some(token) = self
             .registrations
             .iter()
@@ -254,8 +254,8 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
             };
             match operation {
                 Operation::Connect => {
-                    if io_node.as_stream_mut().connected()? {
-                        io_node.as_stream_mut().make_writable()?;
+                    if io_node.as_target_mut().connected()? {
+                        io_node.as_target_mut().make_writable()?;
                         self.registrations.get_mut(&token).unwrap().operation = Operation::Read;
                         self.rearms.push((token, registration.fd, Operation::Read));
                     } else {
@@ -263,7 +263,7 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
                     }
                 }
                 Operation::Read => {
-                    io_node.as_stream_mut().make_readable()?;
+                    io_node.as_target_mut().make_readable()?;
                     if !cqueue::more(flags) {
                         self.rearms.push((token, registration.fd, Operation::Read));
                     }

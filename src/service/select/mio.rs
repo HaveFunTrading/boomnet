@@ -39,28 +39,28 @@ impl<S: Source + Selectable> Selector for MioSelector<S> {
         let token = Token(selector_token as usize);
         self.poll
             .registry()
-            .register(io_node.as_stream_mut(), token, Interest::WRITABLE)?;
+            .register(io_node.as_target_mut(), token, Interest::WRITABLE)?;
         Ok(())
     }
 
     fn unregister<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
-        self.poll.registry().deregister(io_node.as_stream_mut())
+        self.poll.registry().deregister(io_node.as_target_mut())
     }
 
     fn poll<E>(&mut self, io_nodes: &mut IONodes<Self::Target, E>) -> io::Result<()> {
         self.poll.poll(&mut self.events, NO_WAIT)?;
         for ev in self.events.iter() {
             let token = ev.token();
-            let stream = io_nodes
+            let target = io_nodes
                 .get_mut(token.0 as SelectorToken)
                 .ok_or_else(|| io::Error::other("io node not found"))?
-                .as_stream_mut();
-            if ev.is_writable() && stream.connected()? {
-                stream.make_writable()?;
-                self.poll.registry().reregister(stream, token, Interest::READABLE)?;
+                .as_target_mut();
+            if ev.is_writable() && target.connected()? {
+                target.make_writable()?;
+                self.poll.registry().reregister(target, token, Interest::READABLE)?;
             }
             if ev.is_readable() {
-                stream.make_readable()?;
+                target.make_readable()?;
             }
         }
         Ok(())

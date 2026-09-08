@@ -1,18 +1,13 @@
-#![allow(unused)]
-
 use std::io;
-use std::net::{SocketAddr, TcpStream};
-use std::time::Duration;
+use std::net::SocketAddr;
 
-use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::service::endpoint::{Context, Endpoint};
+use boomnet::service::endpoint::Endpoint;
 use boomnet::service::select::mio::MioSelector;
-use boomnet::service::{IOServiceEvent, IntoIOService, IntoIOServiceWithContext};
+use boomnet::service::{IOServiceEvent, IntoIOService};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tls::TlsStream;
-use boomnet::stream::{BindAndConnect, ConnectionInfo, ConnectionInfoProvider};
+use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
 use boomnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
-use idle::IdleStrategy;
 use log::info;
 use url::Url;
 
@@ -31,27 +26,26 @@ impl ConnectionInfoProvider for MarketDataEndpoint {
 }
 
 impl Endpoint for MarketDataEndpoint {
+    type Context = ();
     type Target = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
         match self {
-            MarketDataEndpoint::Ticker(ticker) => ticker.create_target(addr),
-            MarketDataEndpoint::Trade(trade) => trade.create_target(addr),
+            MarketDataEndpoint::Ticker(ticker) => ticker.create_target(addr, ctx),
+            MarketDataEndpoint::Trade(trade) => trade.create_target(addr, ctx),
         }
     }
 }
 
 struct TradeEndpoint {
-    id: u32,
     connection_info: ConnectionInfo,
     instrument: &'static str,
 }
 
 impl TradeEndpoint {
-    pub fn new(id: u32, url: &'static str, instrument: &'static str) -> TradeEndpoint {
+    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpoint {
         let connection_info = Url::parse(url).try_into().unwrap();
         Self {
-            id,
             connection_info,
             instrument,
         }
@@ -65,9 +59,10 @@ impl ConnectionInfoProvider for TradeEndpoint {
 }
 
 impl Endpoint for TradeEndpoint {
+    type Context = ();
     type Target = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -85,16 +80,14 @@ impl Endpoint for TradeEndpoint {
 }
 
 struct TickerEndpoint {
-    id: u32,
     connection_info: ConnectionInfo,
     instrument: &'static str,
 }
 
 impl TickerEndpoint {
-    pub fn new(id: u32, url: &'static str, instrument: &'static str) -> TickerEndpoint {
+    pub fn new(url: &'static str, instrument: &'static str) -> TickerEndpoint {
         let connection_info = Url::parse(url).try_into().unwrap();
         Self {
-            id,
             connection_info,
             instrument,
         }
@@ -108,9 +101,10 @@ impl ConnectionInfoProvider for TickerEndpoint {
 }
 
 impl Endpoint for TickerEndpoint {
+    type Context = ();
     type Target = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -132,14 +126,14 @@ fn main() -> anyhow::Result<()> {
 
     let mut io_service = MioSelector::new()?.into_io_service();
 
-    let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new(0, "wss://stream.binance.com:443/ws", "btcusdt"));
-    let trade = MarketDataEndpoint::Trade(TradeEndpoint::new(1, "wss://stream.binance.com:443/ws", "ethusdt"));
+    let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new("wss://stream.binance.com:443/ws", "btcusdt"));
+    let trade = MarketDataEndpoint::Trade(TradeEndpoint::new("wss://stream.binance.com:443/ws", "ethusdt"));
 
     let ticker_handle = io_service.register(ticker)?;
     let trade_handle = io_service.register(trade)?;
 
     loop {
-        for event in io_service.poll()? {
+        for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 let label = match active.handle() {
                     handle if handle == trade_handle => "TRADE",

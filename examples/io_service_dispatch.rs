@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut io_service = MioSelector::new()?.into_io_service();
 
-    let endpoint_xrp = TradeEndpoint::new_with_subscribe(2, "wss://stream3.binance.com:443/ws", None, "xrpusdt", false);
+    let endpoint_xrp = TradeEndpoint::new_with_subscribe("wss://stream3.binance.com:443/ws", None, "xrpusdt", false);
 
     let handle = io_service.register(endpoint_xrp)?;
 
@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
         if success.is_some() {
             break;
         } else {
-            for event in io_service.poll()? {
+            for event in io_service.poll(&mut ())? {
                 if let IOServiceEvent::Active(active) = event {
                     process_active(active)?;
                 }
@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     loop {
-        for event in io_service.poll()? {
+        for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 process_active(active)?;
             }

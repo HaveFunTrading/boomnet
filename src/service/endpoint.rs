@@ -11,51 +11,25 @@ pub trait Endpoint: ConnectionInfoProvider {
     /// Defines protocol and stream this endpoint operates on.
     type Target;
 
+    /// Shared state borrowed during lifecycle callbacks. Use `()` when no context is needed.
+    type Context;
+
     /// Used by the `IOService` to create connection upon disconnect by passing resolved `addr`.
     /// If the endpoint does not want to connect at this stage it should return `Ok(None)` and
     /// await the next connection attempt with (possibly) different `addr`.
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>>;
+    fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>>;
 
     /// Upon disconnection `IOService` will query the endpoint if the connection should be
     /// recreated, passing the disconnect `reason`. Returning `false` makes the service return
     /// [`crate::service::IOServiceError::EndpointNotRecreatable`].
-    fn can_recreate(&mut self, _reason: &DisconnectReason) -> bool {
+    fn can_recreate(&mut self, _reason: &DisconnectReason, _ctx: &mut Self::Context) -> bool {
         true
     }
 
     /// When `auto_disconnect` is used the service will check with the endpoint before
     /// disconnecting. If `false` is returned the service will update the endpoint next
     /// disconnect time as per the `auto_disconnect` configuration.
-    fn can_auto_disconnect(&mut self) -> bool {
-        true
-    }
-}
-
-/// Marker trait to be applied on user defined `struct` that is registered with 'IOService'
-/// as context.
-pub trait Context {}
-
-/// Describes how an I/O target is created and recreated with access to user-provided [Context].
-pub trait EndpointWithContext<C>: ConnectionInfoProvider {
-    /// Defines protocol and stream this endpoint operates on.
-    type Target;
-
-    /// Used by the `IOService` to create connection upon disconnect passing resolved `addr` and
-    /// user provided `Context`. If the endpoint does not want to connect at this stage it should
-    /// return `Ok(None)` and await the next connection attempt with (possibly) different `addr`.
-    fn create_target(&mut self, addr: SocketAddr, context: &mut C) -> io::Result<Option<Self::Target>>;
-
-    /// Upon disconnection `IOService` will query the endpoint if the connection should be
-    /// recreated, passing the disconnect `reason`. Returning `false` makes the service return
-    /// [`crate::service::IOServiceError::EndpointNotRecreatable`].
-    fn can_recreate(&mut self, _reason: &DisconnectReason, _context: &mut C) -> bool {
-        true
-    }
-
-    /// When `auto_disconnect` is used the service will check with the endpoint before
-    /// disconnecting. If `false` is returned the service will update the endpoint next
-    /// disconnect time as per the `auto_disconnect` configuration.
-    fn can_auto_disconnect(&mut self, _context: &mut C) -> bool {
+    fn can_auto_disconnect(&mut self, _ctx: &mut Self::Context) -> bool {
         true
     }
 }

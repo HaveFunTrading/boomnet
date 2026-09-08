@@ -112,10 +112,11 @@ impl ConnectionInfoProvider for TradeEndpoint {
 }
 
 impl Endpoint for TradeEndpoint {
+    type Context = ();
     type Target = Websocket<TlsStream<MioStream>>;
 
     // called by the IO service whenever a connection has to be established for this endpoint
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
 
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
@@ -151,7 +152,7 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         // will never block
-        for event in io_service.poll()? {
+        for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 let handle = active.handle();
                 active.try_with(|ws| {
@@ -168,44 +169,45 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-It is often required to expose shared state to the `Endpoint`. This can be achieved with user defined `Context`.
+Each endpoint declares its lifecycle context with `type Context`. Use `()` when callbacks need
+no shared state, as above, and pass `&mut ()` to `poll`. To use application state, set the
+associated type on the same `Endpoint` trait:
 
 ```rust
-struct FeedContext;
+#[derive(Default)]
+struct FeedContext {
+    connection_attempts: usize,
+    frames_processed: usize,
+}
 
-// use the marker trait
-impl Context for FeedContext {}
-```
-
-When implementing our `TradeEndpoint` we can use `EndpointWithContext` instead.
-```rust
-impl EndpointWithContext<FeedContext> for TradeEndpoint {
+impl Endpoint for TradeEndpoint {
     type Target = Websocket<TlsStream<MioStream>>;
+    type Context = FeedContext;
 
-    fn create_target(&mut self, addr: SocketAddr, ctx: &mut FeedContext) -> io::Result<Option<Self::Target>> {
-        // we now have access to context
+    fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+        ctx.connection_attempts += 1;
+        // Create and subscribe the WebSocket as above.
         // ...
     }
 }
 ```
 
-We will also need to create `IOService` that is `Context` aware.
+Construction is the same for every endpoint. Context stays owned by the caller and is borrowed
+only during lifecycle callbacks. The returned iterator borrows the service, so application
+processing can immediately use context too:
 
 ```rust
-let mut context = FeedContext::new();
-let mut io_service = MioSelector::new()?.into_io_service_with_context();
-```
+let mut context = FeedContext::default();
+let mut io_service = MioSelector::new()?.into_io_service();
+io_service.register(TradeEndpoint::new("wss://stream.binance.com:443/ws", "btcusdt"))?;
 
-The `Context` is passed to the service for lifecycle callbacks. The returned iterator does not
-borrow it, so application processing can use it too.
-```rust
 loop {
     for event in io_service.poll(&mut context)? {
         if let IOServiceEvent::Active(active) = event {
             active.try_with(|ws| {
                 for frame in ws.read_batch()? {
-                    let frame = frame?;
-                    context.process(frame);
+                    let _frame = frame?;
+                    context.frames_processed += 1;
                 }
                 Ok(())
             })?;
@@ -213,6 +215,11 @@ loop {
     }
 }
 ```
+
+`dispatch` closures can also capture application state directly; there is no separate context
+argument. Explicit event iterator types only need the endpoint: `IOServiceEvents<'a, TradeEndpoint>`.
+See [the context example](examples/io_service_with_context.rs) for a complete implementation that
+shares lifecycle counters across endpoints.
 
 ## Features
 The framework feature set is modular, allowing for tailored functionality based on project needs.

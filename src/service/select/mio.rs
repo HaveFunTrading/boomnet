@@ -6,11 +6,11 @@ use mio::event::Source;
 use mio::{Events, Interest, Poll, Token};
 
 use crate::service::dns::BlockingDnsResolver;
-use crate::service::endpoint::{Context, Endpoint, EndpointWithContext};
+use crate::service::endpoint::Endpoint;
 use crate::service::node::{IONode, IONodes};
 use crate::service::select::{Selectable, Selector, SelectorToken};
 use crate::service::time::SystemTimeClockSource;
-use crate::service::{IOService, IntoIOService, IntoIOServiceWithContext};
+use crate::service::{IOService, IntoIOService};
 
 const NO_WAIT: Option<Duration> = Some(Duration::from_millis(0));
 
@@ -75,17 +75,7 @@ impl<S: Source + Selectable> Selector for MioSelector<S> {
 }
 
 impl<E: Endpoint> IntoIOService<E> for MioSelector<E::Target> {
-    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource, BlockingDnsResolver>
-    where
-        Self: Selector,
-        Self: Sized,
-    {
-        IOService::new(self, SystemTimeClockSource, BlockingDnsResolver)
-    }
-}
-
-impl<C: Context, E: EndpointWithContext<C>> IntoIOServiceWithContext<E, C> for MioSelector<E::Target> {
-    fn into_io_service_with_context(self) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
+    fn into_io_service(self) -> IOService<Self, E, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized,

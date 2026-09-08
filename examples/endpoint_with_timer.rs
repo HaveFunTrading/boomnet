@@ -1,10 +1,12 @@
+//! The timer belongs to application processing; endpoint lifecycle callbacks need no context.
+
 use std::io;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use boomnet::service::endpoint::{Context, EndpointWithContext};
+use boomnet::service::endpoint::Endpoint;
 use boomnet::service::select::mio::MioSelector;
-use boomnet::service::{IOServiceEvent, IntoIOServiceWithContext};
+use boomnet::service::{IOServiceEvent, IntoIOService};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tls::TlsStream;
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
@@ -20,7 +22,7 @@ struct TradeEndpoint {
 }
 
 impl TradeEndpoint {
-    pub fn new(url: &'static str, instrument: &'static str, _ctx: &FeedContext) -> TradeEndpoint {
+    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpoint {
         let connection_info = Url::parse(url).try_into().unwrap();
         Self {
             connection_info,
@@ -33,8 +35,6 @@ impl TradeEndpoint {
 struct FeedContext {
     next_disconnect_time_ns: u64,
 }
-
-impl Context for FeedContext {}
 
 impl FeedContext {
     pub fn new() -> Self {
@@ -65,10 +65,11 @@ impl ConnectionInfoProvider for TradeEndpoint {
     }
 }
 
-impl EndpointWithContext<FeedContext> for TradeEndpoint {
+impl Endpoint for TradeEndpoint {
+    type Context = ();
     type Target = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -90,13 +91,13 @@ fn main() -> anyhow::Result<()> {
 
     let mut ctx = FeedContext::new();
 
-    let mut io_service = MioSelector::new()?.into_io_service_with_context();
+    let mut io_service = MioSelector::new()?.into_io_service();
 
-    let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", "btcusdt", &ctx);
+    let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", "btcusdt");
 
     io_service.register(endpoint_btc)?;
     loop {
-        for event in io_service.poll(&mut ctx)? {
+        for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 if ctx.should_disconnect() {
                     let _ = active.try_with::<()>(|_| Err(io::Error::other("timer expired")));

@@ -3,12 +3,11 @@
 use std::collections::VecDeque;
 use std::io;
 use std::io::ErrorKind;
-use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::service::dns::{BlockingDnsResolver, DnsQuery, DnsResolver};
-use crate::service::endpoint::{Context, DisconnectReason, Endpoint, EndpointWithContext};
+use crate::service::endpoint::{DisconnectReason, Endpoint};
 use crate::service::error::IOServiceOperation;
 use crate::service::node::{IONode, IONodes};
 use crate::service::select::{Selector, SelectorToken};
@@ -32,13 +31,12 @@ const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as 
 pub struct Handle(SelectorToken);
 
 /// Handles the lifecycle of endpoints (see [`Endpoint`]), which are typically network connections.
-/// It uses `SelectService` pattern for managing asynchronous I/O operations.
-pub struct IOService<S: Selector, E, C, TS, D: DnsResolver> {
+/// It uses [`Selector`] pattern for managing asynchronous I/O operations.
+pub struct IOService<S: Selector, E, TS, D: DnsResolver> {
     selector: S,
     pending_endpoints: VecDeque<(Handle, D::Query, u64, E)>,
     io_nodes: IONodes<S::Target, E>,
     next_endpoint_create_time_ns: u64,
-    context: PhantomData<C>,
     auto_disconnect: Option<Box<dyn Fn() -> Duration>>,
     time_source: TS,
     dns_resolver: D,
@@ -156,20 +154,20 @@ enum LifecycleEvent {
     Disconnected { handle: Handle, reason: DisconnectReason },
 }
 
-enum IOServiceEventsInner<'a, T, E> {
+enum IOServiceEventsInner<'a, E: Endpoint> {
     Lifecycle(Option<LifecycleEvent>),
-    Active(std::slice::IterMut<'a, Option<IONode<T, E>>>),
+    Active(std::slice::IterMut<'a, Option<IONode<E::Target, E>>>),
 }
 
 /// Iterator over the result of one service poll.
 ///
 /// A poll that performs a lifecycle transition yields exactly one lifecycle event. Otherwise,
 /// the iterator visits every active endpoint once.
-pub struct IOServiceEvents<'a, T, E> {
-    inner: IOServiceEventsInner<'a, T, E>,
+pub struct IOServiceEvents<'a, E: Endpoint> {
+    inner: IOServiceEventsInner<'a, E>,
 }
 
-impl<'a, T, E> IOServiceEvents<'a, T, E> {
+impl<'a, E: Endpoint> IOServiceEvents<'a, E> {
     #[inline]
     fn lifecycle(event: LifecycleEvent) -> Self {
         Self {
@@ -178,15 +176,15 @@ impl<'a, T, E> IOServiceEvents<'a, T, E> {
     }
 
     #[inline]
-    fn active(nodes: std::slice::IterMut<'a, Option<IONode<T, E>>>) -> Self {
+    fn active(nodes: std::slice::IterMut<'a, Option<IONode<E::Target, E>>>) -> Self {
         Self {
             inner: IOServiceEventsInner::Active(nodes),
         }
     }
 }
 
-impl<'a, T, E> Iterator for IOServiceEvents<'a, T, E> {
-    type Item = IOServiceEvent<'a, T>;
+impl<'a, E: Endpoint> Iterator for IOServiceEvents<'a, E> {
+    type Item = IOServiceEvent<'a, E::Target>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.inner {
@@ -211,33 +209,23 @@ impl<'a, T, E> Iterator for IOServiceEvents<'a, T, E> {
     }
 }
 
-/// Defines how an instance that implements `SelectService` can be transformed
-/// into an [`IOService`], facilitating the management of asynchronous I/O operations.
-pub trait IntoIOService<E> {
-    fn into_io_service(self) -> IOService<Self, E, (), SystemTimeClockSource, BlockingDnsResolver>
-    where
-        Self: Selector,
-        Self: Sized;
-}
-
 /// Defines how an instance that implements [`Selector`] can be transformed
-/// into an [`IOService`] with [`Context`], facilitating the management of asynchronous I/O operations.
-pub trait IntoIOServiceWithContext<E, C: Context> {
-    fn into_io_service_with_context(self) -> IOService<Self, E, C, SystemTimeClockSource, BlockingDnsResolver>
+/// into an [`IOService`], using the endpoint's associated context type.
+pub trait IntoIOService<E> {
+    fn into_io_service(self) -> IOService<Self, E, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized;
 }
 
-impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
+impl<S: Selector, E, TS, D: DnsResolver> IOService<S, E, TS, D> {
     /// Creates new instance of [`IOService`].
-    pub fn new(selector: S, time_source: TS, dns_resolver: D) -> IOService<S, E, C, TS, D> {
+    pub fn new(selector: S, time_source: TS, dns_resolver: D) -> IOService<S, E, TS, D> {
         Self {
             selector,
             pending_endpoints: VecDeque::new(),
             io_nodes: IONodes::default(),
             next_endpoint_create_time_ns: 0,
-            context: PhantomData,
             auto_disconnect: None,
             time_source,
             dns_resolver,
@@ -246,12 +234,12 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     }
 
     /// Specify TTL for each [`Endpoint`] connection.
-    pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, C, TS, D> {
+    pub fn with_auto_disconnect(self, auto_disconnect: Duration) -> IOService<S, E, TS, D> {
         self.with_auto_disconnect_supplier(move || auto_disconnect)
     }
 
     /// Specify TTL supplier for each [`Endpoint`] connection.
-    pub fn with_auto_disconnect_supplier<F>(self, f: F) -> IOService<S, E, C, TS, D>
+    pub fn with_auto_disconnect_supplier<F>(self, f: F) -> IOService<S, E, TS, D>
     where
         F: Fn() -> Duration + 'static,
     {
@@ -263,7 +251,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
 
     /// Specify DNS query timeout. This is only relevant when using asynchronous form of
     /// [`DnsResolver`].
-    pub fn with_dns_query_timeout(self, timeout: Duration) -> IOService<S, E, C, TS, D> {
+    pub fn with_dns_query_timeout(self, timeout: Duration) -> IOService<S, E, TS, D> {
         Self {
             dns_query_timeout_ns: Some(timeout.as_nanos() as u64),
             ..self
@@ -271,11 +259,10 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     }
 
     /// Specify custom [`TimeSource`] instead of the default system time source.
-    pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, E, C, T, D> {
+    pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, E, T, D> {
         IOService {
             time_source,
             pending_endpoints: Default::default(),
-            context: self.context,
             auto_disconnect: self.auto_disconnect,
             io_nodes: Default::default(),
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
@@ -286,11 +273,10 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     }
 
     /// Specify custom [`TimeSource`] instead of the default system time source.
-    pub fn with_dns_resolver<DR: DnsResolver>(self, dns_resolver: DR) -> IOService<S, E, C, TS, DR> {
+    pub fn with_dns_resolver<DR: DnsResolver>(self, dns_resolver: DR) -> IOService<S, E, TS, DR> {
         IOService {
             time_source: self.time_source,
             pending_endpoints: Default::default(),
-            context: self.context,
             auto_disconnect: self.auto_disconnect,
             io_nodes: Default::default(),
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
@@ -570,7 +556,7 @@ impl<S: Selector, E, C, TS, D: DnsResolver> IOService<S, E, C, TS, D> {
     }
 }
 
-impl<S, E, TS, D> IOService<S, E, (), TS, D>
+impl<S, E, TS, D> IOService<S, E, TS, D>
 where
     S: Selector,
     E: Endpoint<Target = S::Target>,
@@ -579,78 +565,12 @@ where
 {
     /// Poll the selector once and return an iterator over endpoint lifecycle events.
     ///
-    /// Each endpoint contributes at most one event. Existing active endpoints are exposed as
-    /// [`IOServiceEvent::Active`]; an empty iterator means no endpoint produced work.
-    pub fn poll(&mut self) -> Result<IOServiceEvents<'_, S::Target, E>, IOServiceError> {
-        let lifecycle = if let Some((handle, reason)) = self.take_pending_disconnect() {
-            Some(self.disconnect_active(handle, reason, |endpoint, reason| endpoint.can_recreate(reason))?)
-        } else if let Some((handle, ttl)) = self.expired_endpoint() {
-            if self
-                .io_nodes
-                .get_mut(handle.0)
-                .ok_or(IOServiceError::InvalidState {
-                    handle: Some(handle),
-                    message: "expired endpoint is not registered",
-                })?
-                .as_endpoint_mut()
-                .1
-                .can_auto_disconnect()
-            {
-                let reason = DisconnectReason::auto_disconnect(ttl);
-                Some(self.disconnect_active(handle, reason, |endpoint, reason| endpoint.can_recreate(reason))?)
-            } else {
-                self.defer_auto_disconnect(handle)?;
-                None
-            }
-        } else if self.pending_endpoints.is_empty() {
-            None
-        } else {
-            self.check_pending_endpoints(|endpoint, addr| endpoint.create_target(addr))?
-                .map(|handle| LifecycleEvent::Connected { handle })
-        };
-
-        if let Some(lifecycle) = lifecycle {
-            return Ok(IOServiceEvents::lifecycle(lifecycle));
-        }
-
-        self.selector
-            .poll(&mut self.io_nodes)
-            .map_err(|source| IOServiceError::io(None, IOServiceOperation::PollSelector, source))?;
-
-        Ok(IOServiceEvents::active(self.io_nodes.slots_mut()))
-    }
-
-    /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
-    /// endpoint is currently active `Ok(Some(...))` will be returned and the provided `action` invoked,
-    /// otherwise this method will return `Ok(None)` and no `action` will be invoked.
-    pub fn dispatch<F, T>(&mut self, handle: Handle, mut action: F) -> io::Result<Option<T>>
-    where
-        F: FnMut(&mut E::Target, &mut E) -> std::io::Result<T>,
-    {
-        match self.io_nodes.get_mut(handle.0) {
-            Some(io_node) => {
-                let (target, (_, endpoint)) = io_node.as_parts_mut();
-                let result = action(target, endpoint)?;
-                Ok(Some(result))
-            }
-            None => Ok(None),
-        }
-    }
-}
-
-impl<S, E, C, TS, D> IOService<S, E, C, TS, D>
-where
-    S: Selector,
-    C: Context,
-    E: EndpointWithContext<C, Target = S::Target>,
-    TS: TimeSource,
-    D: DnsResolver,
-{
-    /// Poll the selector once and return an iterator over endpoint lifecycle events.
+    /// Pass `&mut ()` for endpoints whose [`Endpoint::Context`] is `()`.
+    /// Each endpoint contributes at most one event; an empty iterator means no endpoint produced work.
     ///
     /// The returned iterator borrows the service, but does not borrow `ctx`, allowing application
     /// logic to use its context while processing active endpoints.
-    pub fn poll(&mut self, ctx: &mut C) -> Result<IOServiceEvents<'_, S::Target, E>, IOServiceError> {
+    pub fn poll(&mut self, ctx: &mut E::Context) -> Result<IOServiceEvents<'_, E>, IOServiceError> {
         let lifecycle = if let Some((handle, reason)) = self.take_pending_disconnect() {
             Some(self.disconnect_active(handle, reason, |endpoint, reason| endpoint.can_recreate(reason, ctx))?)
         } else if let Some((handle, ttl)) = self.expired_endpoint() {
@@ -691,16 +611,16 @@ where
 
     /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
     /// endpoint is currently active `Ok(Some(...))` will be returned and the provided `action` invoked,
-    /// otherwise this method will return `Ok(None)` and no `action` will be invoked. This method
-    /// requires `Context` to be passed and exposes it to the provided `action`.
-    pub fn dispatch<F, T>(&mut self, handle: Handle, ctx: &mut C, mut action: F) -> io::Result<Option<T>>
+    /// otherwise this method will return `Ok(None)` and no `action` will be invoked.
+    /// The action can capture application context directly.
+    pub fn dispatch<F, T>(&mut self, handle: Handle, mut action: F) -> io::Result<Option<T>>
     where
-        F: FnMut(&mut E::Target, &mut E, &mut C) -> std::io::Result<T>,
+        F: FnMut(&mut E::Target, &mut E) -> std::io::Result<T>,
     {
         match self.io_nodes.get_mut(handle.0) {
             Some(io_node) => {
                 let (target, (_, endpoint)) = io_node.as_parts_mut();
-                let result = action(target, endpoint, ctx)?;
+                let result = action(target, endpoint)?;
                 Ok(Some(result))
             }
             None => Ok(None),
@@ -821,32 +741,152 @@ mod tests {
     }
 
     impl Endpoint for TestEndpoint {
+        type Context = ();
         type Target = TestTarget;
 
-        fn create_target(&mut self, _addr: SocketAddr) -> io::Result<Option<Self::Target>> {
+        fn create_target(&mut self, _addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
             Ok(Some(TestTarget {
                 id: self.id,
                 fail: self.fail_poll,
             }))
         }
 
-        fn can_recreate(&mut self, _reason: &DisconnectReason) -> bool {
+        fn can_recreate(&mut self, _reason: &DisconnectReason, _ctx: &mut Self::Context) -> bool {
             self.recreate
         }
     }
 
-    fn service(time: ManualTime) -> IOService<TestSelector, TestEndpoint, (), ManualTime, FixedDns> {
+    fn service(time: ManualTime) -> IOService<TestSelector, TestEndpoint, ManualTime, FixedDns> {
         IOService::new(TestSelector::default(), time, FixedDns)
     }
 
     fn connect_next(
-        service: &mut IOService<TestSelector, TestEndpoint, (), ManualTime, FixedDns>,
+        service: &mut IOService<TestSelector, TestEndpoint, ManualTime, FixedDns>,
         now: &Rc<Cell<u64>>,
         time_ns: u64,
     ) {
         now.set(time_ns);
-        let events = service.poll().unwrap().collect::<Vec<_>>();
+        let events = service.poll(&mut ()).unwrap().collect::<Vec<_>>();
         assert!(matches!(events.as_slice(), [IOServiceEvent::Connected { .. }]));
+    }
+
+    #[derive(Default)]
+    struct LifecycleContext {
+        created: usize,
+        auto_disconnect_checks: usize,
+        reconnect_checks: usize,
+        allow_auto_disconnect: bool,
+        allow_reconnect: bool,
+        processed: usize,
+    }
+
+    struct ContextEndpoint(TestEndpoint);
+
+    impl ConnectionInfoProvider for ContextEndpoint {
+        fn connection_info(&self) -> &crate::stream::ConnectionInfo {
+            self.0.connection_info()
+        }
+    }
+
+    impl Endpoint for ContextEndpoint {
+        type Target = TestTarget;
+        type Context = LifecycleContext;
+
+        fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+            ctx.created += 1;
+            self.0.create_target(addr, &mut ())
+        }
+
+        fn can_auto_disconnect(&mut self, ctx: &mut Self::Context) -> bool {
+            ctx.auto_disconnect_checks += 1;
+            ctx.allow_auto_disconnect
+        }
+
+        fn can_recreate(&mut self, _reason: &DisconnectReason, ctx: &mut Self::Context) -> bool {
+            ctx.reconnect_checks += 1;
+            ctx.allow_reconnect
+        }
+    }
+
+    #[test]
+    fn context_controls_lifecycle_and_remains_available_while_processing_events() {
+        let now = Rc::new(Cell::new(1));
+        let mut service = IOService::new(TestSelector::default(), ManualTime(now.clone()), FixedDns)
+            .with_auto_disconnect(Duration::from_secs(2));
+        let handle = service.register(ContextEndpoint(TestEndpoint::new(7))).unwrap();
+        let mut ctx = LifecycleContext {
+            allow_reconnect: true,
+            ..LifecycleContext::default()
+        };
+        assert!(matches!(
+            service.poll(&mut ctx).unwrap().next(),
+            Some(IOServiceEvent::Connected { handle: h }) if h == handle
+        ));
+        assert_eq!(ctx.created, 1);
+
+        // Context can defer an expired endpoint's automatic disconnection.
+        now.set(2_000_000_002);
+        let events: IOServiceEvents<'_, ContextEndpoint> = service.poll(&mut ctx).unwrap();
+        assert_eq!(ctx.auto_disconnect_checks, 1);
+        for event in events {
+            let IOServiceEvent::Active(active) = event else {
+                panic!("expected deferred endpoint to remain active");
+            };
+            active
+                .try_with(|target| {
+                    assert_eq!(target.id, 7);
+                    ctx.processed += 1;
+                    Ok(())
+                })
+                .unwrap();
+        }
+        assert_eq!(ctx.processed, 1);
+        assert_eq!(ctx.reconnect_checks, 0);
+
+        // Dispatch captures the same context without a service context argument.
+        assert_eq!(
+            service
+                .dispatch(handle, |target, _endpoint| {
+                    ctx.processed += 1;
+                    Ok(target.id)
+                })
+                .unwrap(),
+            Some(7)
+        );
+        assert_eq!(ctx.processed, 2);
+
+        ctx.allow_auto_disconnect = true;
+        now.set(4_000_000_002);
+        assert!(matches!(
+            service.poll(&mut ctx).unwrap().next(),
+            Some(IOServiceEvent::Disconnected {
+                handle: h,
+                reason: DisconnectReason::AutoDisconnect(_),
+            }) if h == handle
+        ));
+        assert_eq!(ctx.auto_disconnect_checks, 2);
+        assert_eq!(ctx.reconnect_checks, 1);
+        assert!(matches!(
+            service.poll(&mut ctx).unwrap().next(),
+            Some(IOServiceEvent::Connected { handle: h }) if h == handle
+        ));
+        assert_eq!(ctx.created, 2);
+
+        // A later application error also consults the same lifecycle context.
+        for event in service.poll(&mut ctx).unwrap() {
+            if let IOServiceEvent::Active(active) = event {
+                ctx.allow_reconnect = false;
+                assert!(active.try_with::<()>(|_| Err(io::Error::other("failed"))).is_err());
+            }
+        }
+        assert!(matches!(
+            service.poll(&mut ctx),
+            Err(IOServiceError::EndpointNotRecreatable {
+                handle: h,
+                reason: DisconnectReason::IO(_),
+            }) if h == handle
+        ));
+        assert_eq!(ctx.reconnect_checks, 2);
     }
 
     #[test]
@@ -862,7 +902,7 @@ mod tests {
         connect_next(&mut service, &now, 2_000_000_003);
 
         let events = service
-            .poll()
+            .poll(&mut ())
             .unwrap()
             .filter_map(|event| match event {
                 IOServiceEvent::Active(active) => Some(active.try_with(|target| Ok(target.id)).unwrap().into_inner()),
@@ -886,7 +926,7 @@ mod tests {
 
         service.deregister(handles[1]).unwrap();
         let events = service
-            .poll()
+            .poll(&mut ())
             .unwrap()
             .filter_map(|event| match event {
                 IOServiceEvent::Active(active) => Some(active.try_with(|target| Ok(target.id)).unwrap().into_inner()),
@@ -903,7 +943,7 @@ mod tests {
         let handle = service.register(TestEndpoint::terminal(7)).unwrap();
         connect_next(&mut service, &now, 1);
 
-        let mut events = service.poll().unwrap();
+        let mut events = service.poll(&mut ()).unwrap();
         let active = events
             .find_map(|event| match event {
                 IOServiceEvent::Active(active) => Some(active),
@@ -919,7 +959,7 @@ mod tests {
         assert_eq!(source.kind(), ErrorKind::ConnectionReset);
         drop(events);
 
-        let error = match service.poll() {
+        let error = match service.poll(&mut ()) {
             Err(error) => error,
             Ok(_) => panic!("expected terminal endpoint error"),
         };
@@ -943,7 +983,7 @@ mod tests {
         let handle = service.register(TestEndpoint::terminal(7)).unwrap();
         connect_next(&mut service, &now, 1);
 
-        let mut events = service.poll().unwrap();
+        let mut events = service.poll(&mut ()).unwrap();
         let active = events
             .find_map(|event| match event {
                 IOServiceEvent::Active(active) => Some(active),
@@ -957,7 +997,7 @@ mod tests {
         );
         drop(events);
         assert!(service.deregister(handle).unwrap().is_some());
-        assert_eq!(service.poll().unwrap().count(), 0);
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 0);
     }
 
     #[test]
@@ -967,7 +1007,7 @@ mod tests {
         let handle = service.register(TestEndpoint::new(7)).unwrap();
         connect_next(&mut service, &now, 1);
 
-        let mut events = service.poll().unwrap();
+        let mut events = service.poll(&mut ()).unwrap();
         let active = events
             .find_map(|event| match event {
                 IOServiceEvent::Active(active) => Some(active),
@@ -983,7 +1023,7 @@ mod tests {
         drop(events);
 
         now.set(2_000_000_002);
-        let events = service.poll().unwrap().collect::<Vec<_>>();
+        let events = service.poll(&mut ()).unwrap().collect::<Vec<_>>();
         assert_eq!(events.len(), 1);
         let disconnected = events.into_iter().find_map(|event| match event {
             IOServiceEvent::Disconnected {
@@ -996,7 +1036,7 @@ mod tests {
             IOServiceEvent::Disconnected { .. } => None,
         });
         assert_eq!(disconnected, Some((handle, ErrorKind::ConnectionAborted)));
-        assert!(service.poll().unwrap().any(
+        assert!(service.poll(&mut ()).unwrap().any(
             |event| matches!(event, IOServiceEvent::Connected { handle: event_handle } if event_handle == handle)
         ));
     }

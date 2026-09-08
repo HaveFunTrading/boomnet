@@ -25,7 +25,7 @@ type Frames<'a> = Map<
 type ActiveFrames<'a> = ActiveOutput<'a, Frames<'a>>;
 
 struct ExchangeEvents<'a> {
-    io_events: IOServiceEvents<'a, Target, TradeEndpoint>,
+    io_events: IOServiceEvents<'a, TradeEndpoint>,
     active_frames: Option<ActiveFrames<'a>>,
 }
 
@@ -39,7 +39,7 @@ enum ExchangeError {
 }
 
 impl<'a> ExchangeEvents<'a> {
-    fn new(io_events: IOServiceEvents<'a, Target, TradeEndpoint>) -> Self {
+    fn new(io_events: IOServiceEvents<'a, TradeEndpoint>) -> Self {
         Self {
             io_events,
             active_frames: None,
@@ -96,10 +96,10 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let mut io_service = MioSelector::new()?.into_io_service();
-    io_service.register(TradeEndpoint::new(0, "wss://stream.binance.com:443/ws", None, "btcusdt"))?;
+    io_service.register(TradeEndpoint::new("wss://stream.binance.com:443/ws", None, "btcusdt"))?;
 
     loop {
-        for event in ExchangeEvents::new(io_service.poll()?) {
+        for event in ExchangeEvents::new(io_service.poll(&mut ())?) {
             match event {
                 Ok(ExchangeEvent::Text { final_fragment, body }) => {
                     println!("({final_fragment}) {}", String::from_utf8_lossy(body))

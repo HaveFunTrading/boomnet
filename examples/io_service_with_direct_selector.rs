@@ -46,9 +46,10 @@ impl ConnectionInfoProvider for TradeEndpoint {
 }
 
 impl Endpoint for TradeEndpoint {
+    type Context = ();
     type Target = Websocket<TlsStream<tcp::TcpStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -77,7 +78,7 @@ fn main() -> anyhow::Result<()> {
     io_service.register(endpoint_xrp)?;
 
     loop {
-        for event in io_service.poll()? {
+        for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 let handle = active.handle();
                 let batch = active.try_with(|ws| {

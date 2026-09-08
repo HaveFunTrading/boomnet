@@ -6,7 +6,7 @@ use crate::endpoint::{TestContext, TestEndpoint};
 use ::boomnet::stream::buffer::IntoBufferedStream;
 use ::boomnet::ws::IntoWebsocket;
 use boomnet::service::IOServiceEvent;
-use boomnet::service::IntoIOServiceWithContext;
+use boomnet::service::IntoIOService;
 use boomnet::service::select::direct::DirectSelector;
 use boomnet::stream::ConnectionInfo;
 
@@ -63,13 +63,13 @@ fn boomnet_rtt_benchmark_io_service(c: &mut Criterion) {
 
     // setup io service
     let mut ctx = TestContext::new();
-    let mut io_service = DirectSelector::new().unwrap().into_io_service_with_context();
+    let mut io_service = DirectSelector::new().unwrap().into_io_service();
     io_service.register(TestEndpoint::new(9003, MSG)).unwrap();
 
     group.bench_function("boomnet_rtt_io_service", |b| {
         b.iter(|| {
             loop {
-                for event in io_service.poll(&mut ctx).unwrap() {
+                for event in io_service.poll(&mut ()).unwrap() {
                     if let IOServiceEvent::Active(active) = event {
                         if ctx.wants_write {
                             active

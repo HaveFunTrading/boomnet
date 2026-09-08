@@ -1,23 +1,13 @@
 use boomnet::service::ActiveEndpoint;
-use boomnet::service::endpoint::{Context, DisconnectReason, Endpoint, EndpointWithContext};
+use boomnet::service::endpoint::{DisconnectReason, Endpoint};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tcp::TcpStream;
 use boomnet::stream::tls::{IntoTlsStream, TlsConfigExt, TlsStream};
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
-use boomnet::ws::{IntoTlsWebsocket, IntoWebsocket, Websocket, WebsocketFrame};
+use boomnet::ws::{IntoWebsocket, Websocket, WebsocketFrame};
 use log::{info, warn};
 use std::io;
 use std::net::SocketAddr;
-
-pub struct FeedContext;
-impl Context for FeedContext {}
-
-impl FeedContext {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 pub struct TradeEndpoint {
     connection_info: ConnectionInfo,
@@ -44,12 +34,11 @@ pub fn process_active(active: ActiveEndpoint<'_, Websocket<TlsStream<MioStream>>
 
 impl TradeEndpoint {
     #[allow(dead_code)]
-    pub fn new(id: u32, url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
-        Self::new_with_subscribe(id, url, net_iface, instrument, true)
+    pub fn new(url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
+        Self::new_with_subscribe(url, net_iface, instrument, true)
     }
 
     pub fn new_with_subscribe(
-        _id: u32,
         url: &'static str,
         net_iface: Option<&'static str>,
         instrument: &'static str,
@@ -83,9 +72,10 @@ impl ConnectionInfoProvider for TradeEndpoint {
 }
 
 impl Endpoint for TradeEndpoint {
+    type Context = ();
     type Target = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr) -> io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_tls_stream_with_config(|cfg| cfg.with_no_cert_verification())?
@@ -97,24 +87,8 @@ impl Endpoint for TradeEndpoint {
 
         Ok(Some(ws))
     }
-    fn can_recreate(&mut self, reason: &DisconnectReason) -> bool {
+    fn can_recreate(&mut self, reason: &DisconnectReason, _ctx: &mut Self::Context) -> bool {
         warn!("connection disconnected: {reason}");
         true
-    }
-}
-
-impl EndpointWithContext<FeedContext> for TradeEndpoint {
-    type Target = Websocket<TlsStream<MioStream>>;
-
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut FeedContext) -> io::Result<Option<Self::Target>> {
-        let mut ws = TcpStream::try_from((&self.connection_info, addr))?
-            .into_mio_stream()
-            .into_tls_websocket(&self.ws_endpoint)?;
-
-        if self.subscribe {
-            self.subscribe(&mut ws)?;
-        }
-
-        Ok(Some(ws))
     }
 }

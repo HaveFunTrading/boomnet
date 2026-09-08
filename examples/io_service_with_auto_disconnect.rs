@@ -15,16 +15,16 @@ fn main() -> anyhow::Result<()> {
         .with_auto_disconnect(Duration::from_secs(10))
         .with_dns_resolver(AsyncDnsResolver::new()?);
 
-    let endpoint_btc_0 = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
-    let endpoint_btc_1 = TradeEndpoint::new(1, "wss://stream1.binance.com:443/ws", None, "btcusdt");
-    let endpoint_btc_2 = TradeEndpoint::new(2, "wss://stream1.binance.com:443/ws", None, "btcusdt");
+    let endpoint_btc_0 = TradeEndpoint::new("wss://stream1.binance.com:443/ws", None, "btcusdt");
+    let endpoint_btc_1 = TradeEndpoint::new("wss://stream1.binance.com:443/ws", None, "btcusdt");
+    let endpoint_btc_2 = TradeEndpoint::new("wss://stream1.binance.com:443/ws", None, "btcusdt");
 
     io_service.register(endpoint_btc_0)?;
     io_service.register(endpoint_btc_1)?;
     io_service.register(endpoint_btc_2)?;
 
     loop {
-        for event in io_service.poll()? {
+        for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 process_active(active)?;
             }

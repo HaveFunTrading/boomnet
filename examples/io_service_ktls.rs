@@ -77,9 +77,10 @@ impl ConnectionInfoProvider for TradeConnectionFactory {
 
 #[cfg(feature = "ktls")]
 impl Endpoint for TradeConnectionFactory {
+    type Context = ();
     type Target = TradeConnection;
 
-    fn create_target(&mut self, addr: SocketAddr) -> std::io::Result<Option<Self::Target>> {
+    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> std::io::Result<Option<Self::Target>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_ktls_stream_with_config(|cfg| cfg.with_no_cert_verification())?
@@ -89,7 +90,7 @@ impl Endpoint for TradeConnectionFactory {
 
         Ok(Some(TradeConnection { ws }))
     }
-    fn can_recreate(&mut self, reason: &DisconnectReason) -> bool {
+    fn can_recreate(&mut self, reason: &DisconnectReason, _ctx: &mut Self::Context) -> bool {
         println!("on disconnect: reason={}", reason);
         true
     }
@@ -104,7 +105,7 @@ fn main() -> anyhow::Result<()> {
     io_service.register(TradeConnectionFactory::new())?;
 
     loop {
-        for event in io_service.poll()? {
+        for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 let batch = active.try_with(|target| {
                     target

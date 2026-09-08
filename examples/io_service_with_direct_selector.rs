@@ -1,5 +1,5 @@
 use boomnet::inet::{IntoNetworkInterface, ToSocketAddr};
-use boomnet::service::endpoint::Endpoint;
+use boomnet::service::endpoint::EndpointFactory;
 use boomnet::service::select::direct::DirectSelector;
 use boomnet::service::{IOServiceEvent, IntoIOService};
 use boomnet::stream::tls::TlsStream;
@@ -9,19 +9,19 @@ use std::io;
 use std::net::SocketAddr;
 use url::Url;
 
-struct TradeEndpoint {
+struct TradeEndpointFactory {
     connection_info: ConnectionInfo,
     instrument: &'static str,
     ws_endpoint: String,
 }
 
-impl TradeEndpoint {
+impl TradeEndpointFactory {
     pub fn new(
         _id: u32,
         url: &'static str,
         net_iface: Option<&'static str>,
         instrument: &'static str,
-    ) -> TradeEndpoint {
+    ) -> TradeEndpointFactory {
         let url = Url::parse(url).unwrap();
         let mut connection_info = ConnectionInfo::try_from(url.clone()).unwrap();
         let ws_endpoint = url.path().to_owned();
@@ -39,17 +39,17 @@ impl TradeEndpoint {
     }
 }
 
-impl ConnectionInfoProvider for TradeEndpoint {
+impl ConnectionInfoProvider for TradeEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TradeEndpoint {
+impl EndpointFactory for TradeEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<tcp::TcpStream>>;
+    type Endpoint = Websocket<TlsStream<tcp::TcpStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -69,13 +69,13 @@ fn main() -> anyhow::Result<()> {
 
     let mut io_service = DirectSelector::new()?.into_io_service();
 
-    let endpoint_btc = TradeEndpoint::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
-    let endpoint_eth = TradeEndpoint::new(1, "wss://stream2.binance.com:443/ws", None, "ethusdt");
-    let endpoint_xrp = TradeEndpoint::new(2, "wss://stream3.binance.com:443/ws", None, "xrpusdt");
+    let factory_btc = TradeEndpointFactory::new(0, "wss://stream1.binance.com:443/ws", None, "btcusdt");
+    let factory_eth = TradeEndpointFactory::new(1, "wss://stream2.binance.com:443/ws", None, "ethusdt");
+    let factory_xrp = TradeEndpointFactory::new(2, "wss://stream3.binance.com:443/ws", None, "xrpusdt");
 
-    io_service.register(endpoint_btc)?;
-    io_service.register(endpoint_eth)?;
-    io_service.register(endpoint_xrp)?;
+    io_service.register(factory_btc)?;
+    io_service.register(factory_eth)?;
+    io_service.register(factory_xrp)?;
 
     loop {
         for event in io_service.poll(&mut ())? {

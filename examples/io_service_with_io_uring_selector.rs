@@ -1,4 +1,4 @@
-use boomnet::service::endpoint::Endpoint;
+use boomnet::service::endpoint::EndpointFactory;
 use boomnet::service::select::io_uring::{IoUringConfig, IoUringSelector};
 use boomnet::service::{IOServiceEvent, IntoIOService};
 use boomnet::stream::io_uring::{IntoIoUringStream, IoUringStream};
@@ -10,13 +10,13 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use url::Url;
 
-struct TradeEndpoint {
+struct TradeEndpointFactory {
     connection_info: ConnectionInfo,
     instrument: &'static str,
     ws_endpoint: String,
 }
 
-impl TradeEndpoint {
+impl TradeEndpointFactory {
     fn new(url: &'static str, instrument: &'static str) -> Self {
         let url = Url::parse(url).unwrap();
         Self {
@@ -27,17 +27,17 @@ impl TradeEndpoint {
     }
 }
 
-impl ConnectionInfoProvider for TradeEndpoint {
+impl ConnectionInfoProvider for TradeEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TradeEndpoint {
+impl EndpointFactory for TradeEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<IoUringStream>>;
+    type Endpoint = Websocket<TlsStream<IoUringStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -65,8 +65,8 @@ fn main() -> anyhow::Result<()> {
     })?;
     let mut io_service = selector.into_io_service();
 
-    io_service.register(TradeEndpoint::new("wss://stream.binance.com:443/ws", "btcusdt"))?;
-    io_service.register(TradeEndpoint::new("wss://stream.binance.com:443/ws", "ethusdt"))?;
+    io_service.register(TradeEndpointFactory::new("wss://stream.binance.com:443/ws", "btcusdt"))?;
+    io_service.register(TradeEndpointFactory::new("wss://stream.binance.com:443/ws", "ethusdt"))?;
 
     loop {
         for event in io_service.poll(&mut ())? {

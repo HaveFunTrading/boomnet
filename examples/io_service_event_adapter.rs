@@ -12,12 +12,12 @@ use boomnet::stream::mio::MioStream;
 use boomnet::stream::tls::TlsStream;
 use boomnet::ws::{BatchIter, Websocket, WebsocketFrame};
 
-use crate::common::TradeEndpoint;
+use crate::common::TradeEndpointFactory;
 
 #[path = "common/mod.rs"]
 mod common;
 
-type Target = Websocket<TlsStream<MioStream>>;
+type TradeEndpoint = Websocket<TlsStream<MioStream>>;
 type Frames<'a> = Map<
     BatchIter<'a, TlsStream<MioStream>>,
     fn(Result<WebsocketFrame, boomnet::ws::Error>) -> io::Result<WebsocketFrame>,
@@ -25,7 +25,7 @@ type Frames<'a> = Map<
 type ActiveFrames<'a> = ActiveOutput<'a, Frames<'a>>;
 
 struct ExchangeEvents<'a> {
-    io_events: IOServiceEvents<'a, TradeEndpoint>,
+    io_events: IOServiceEvents<'a, TradeEndpointFactory>,
     active_frames: Option<ActiveFrames<'a>>,
 }
 
@@ -39,7 +39,7 @@ enum ExchangeError {
 }
 
 impl<'a> ExchangeEvents<'a> {
-    fn new(io_events: IOServiceEvents<'a, TradeEndpoint>) -> Self {
+    fn new(io_events: IOServiceEvents<'a, TradeEndpointFactory>) -> Self {
         Self {
             io_events,
             active_frames: None,
@@ -82,7 +82,7 @@ impl Iterator for ExchangeEvents<'_> {
     }
 }
 
-fn read_frames(ws: &mut Target) -> io::Result<Frames<'_>> {
+fn read_frames(ws: &mut TradeEndpoint) -> io::Result<Frames<'_>> {
     ws.read_batch()
         .map(|batch| batch.into_iter().map(frame_to_io as fn(_) -> _))
         .map_err(io::Error::from)
@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let mut io_service = MioSelector::new()?.into_io_service();
-    io_service.register(TradeEndpoint::new("wss://stream.binance.com:443/ws", None, "btcusdt"))?;
+    io_service.register(TradeEndpointFactory::new("wss://stream.binance.com:443/ws", None, "btcusdt"))?;
 
     loop {
         for event in ExchangeEvents::new(io_service.poll(&mut ())?) {

@@ -4,22 +4,22 @@ use crate::service::select::SelectorToken;
 use crate::service::time::TimeSource;
 use std::time::Duration;
 
-pub struct IONode<T, E> {
-    pub target: T,
-    pub endpoint: (Handle, E),
+pub struct IONode<E, F> {
+    pub endpoint: E,
+    pub factory: (Handle, F),
     pub ttl: Duration,
     pub disconnect_time_ns: u64,
     pub pending_disconnect: Option<DisconnectReason>,
 }
 
 /// Token-indexed storage for active I/O nodes.
-pub struct IONodes<T, E> {
-    slots: Vec<Option<IONode<T, E>>>,
+pub struct IONodes<E, F> {
+    slots: Vec<Option<IONode<E, F>>>,
 }
 
 const MIN_IO_NODE_SLOTS: usize = 4;
 
-impl<T, E> Default for IONodes<T, E> {
+impl<E, F> Default for IONodes<E, F> {
     fn default() -> Self {
         Self {
             slots: Vec::with_capacity(MIN_IO_NODE_SLOTS),
@@ -27,8 +27,8 @@ impl<T, E> Default for IONodes<T, E> {
     }
 }
 
-impl<T, E> IONodes<T, E> {
-    pub fn insert(&mut self, token: SelectorToken, node: IONode<T, E>) -> Result<(), IONode<T, E>> {
+impl<E, F> IONodes<E, F> {
+    pub fn insert(&mut self, token: SelectorToken, node: IONode<E, F>) -> Result<(), IONode<E, F>> {
         let index = token as usize;
         if index >= self.slots.len() {
             self.slots.resize_with(index + 1, || None);
@@ -42,16 +42,16 @@ impl<T, E> IONodes<T, E> {
     }
 
     #[inline]
-    pub fn get(&self, token: SelectorToken) -> Option<&IONode<T, E>> {
+    pub fn get(&self, token: SelectorToken) -> Option<&IONode<E, F>> {
         self.slots.get(token as usize)?.as_ref()
     }
 
     #[inline]
-    pub fn get_mut(&mut self, token: SelectorToken) -> Option<&mut IONode<T, E>> {
+    pub fn get_mut(&mut self, token: SelectorToken) -> Option<&mut IONode<E, F>> {
         self.slots.get_mut(token as usize)?.as_mut()
     }
 
-    pub fn remove(&mut self, token: SelectorToken) -> Option<IONode<T, E>> {
+    pub fn remove(&mut self, token: SelectorToken) -> Option<IONode<E, F>> {
         let node = self.slots.get_mut(token as usize)?.take()?;
         while self.slots.last().is_some_and(Option::is_none) {
             self.slots.pop();
@@ -60,30 +60,30 @@ impl<T, E> IONodes<T, E> {
     }
 
     #[inline]
-    pub fn values(&self) -> impl Iterator<Item = &IONode<T, E>> {
+    pub fn values(&self) -> impl Iterator<Item = &IONode<E, F>> {
         self.slots.iter().flatten()
     }
 
     #[inline]
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut IONode<T, E>> {
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut IONode<E, F>> {
         self.slots.iter_mut().flatten()
     }
 
     #[inline]
-    pub fn slots_mut(&mut self) -> std::slice::IterMut<'_, Option<IONode<T, E>>> {
+    pub fn slots_mut(&mut self) -> std::slice::IterMut<'_, Option<IONode<E, F>>> {
         self.slots.iter_mut()
     }
 }
 
-impl<T, E> IONode<T, E> {
-    pub fn new<TS>(target: T, handle: Handle, endpoint: E, ttl: Option<Duration>, ts: &TS) -> IONode<T, E>
+impl<E, F> IONode<E, F> {
+    pub fn new<TS>(endpoint: E, handle: Handle, factory: F, ttl: Option<Duration>, ts: &TS) -> IONode<E, F>
     where
         TS: TimeSource,
     {
         let ttl = ttl.map_or(u64::MAX, |ttl| ttl.as_nanos() as u64);
         Self {
-            target,
-            endpoint: (handle, endpoint),
+            endpoint,
+            factory: (handle, factory),
             ttl: Duration::from_nanos(ttl),
             disconnect_time_ns: ts.current_time_nanos().saturating_add(ttl),
             pending_disconnect: None,
@@ -91,38 +91,38 @@ impl<T, E> IONode<T, E> {
     }
 
     #[inline]
-    pub const fn as_parts(&self) -> (&T, &(Handle, E)) {
-        (&self.target, &self.endpoint)
+    pub const fn as_parts(&self) -> (&E, &(Handle, F)) {
+        (&self.endpoint, &self.factory)
     }
 
     #[inline]
-    pub const fn as_parts_mut(&mut self) -> (&mut T, &mut (Handle, E)) {
-        (&mut self.target, &mut self.endpoint)
+    pub const fn as_parts_mut(&mut self) -> (&mut E, &mut (Handle, F)) {
+        (&mut self.endpoint, &mut self.factory)
     }
 
     #[inline]
-    pub const fn as_target(&self) -> &T {
-        &self.target
-    }
-
-    #[inline]
-    pub const fn as_target_mut(&mut self) -> &mut T {
-        &mut self.target
-    }
-
-    #[inline]
-    pub const fn as_endpoint(&self) -> &(Handle, E) {
+    pub const fn as_endpoint(&self) -> &E {
         &self.endpoint
     }
 
     #[inline]
-    pub const fn as_endpoint_mut(&mut self) -> &mut (Handle, E) {
+    pub const fn as_endpoint_mut(&mut self) -> &mut E {
         &mut self.endpoint
     }
 
     #[inline]
-    pub fn into_endpoint(self) -> (Handle, E) {
-        self.endpoint
+    pub const fn as_factory(&self) -> &(Handle, F) {
+        &self.factory
+    }
+
+    #[inline]
+    pub const fn as_factory_mut(&mut self) -> &mut (Handle, F) {
+        &mut self.factory
+    }
+
+    #[inline]
+    pub fn into_factory(self) -> (Handle, F) {
+        self.factory
     }
 }
 

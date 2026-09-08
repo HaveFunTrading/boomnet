@@ -1,5 +1,5 @@
 use boomnet::service::ActiveEndpoint;
-use boomnet::service::endpoint::{DisconnectReason, Endpoint};
+use boomnet::service::endpoint::{DisconnectReason, EndpointFactory};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
 use boomnet::stream::tcp::TcpStream;
 use boomnet::stream::tls::{IntoTlsStream, TlsConfigExt, TlsStream};
@@ -9,7 +9,7 @@ use log::{info, warn};
 use std::io;
 use std::net::SocketAddr;
 
-pub struct TradeEndpoint {
+pub struct TradeEndpointFactory {
     connection_info: ConnectionInfo,
     instrument: &'static str,
     ws_endpoint: String,
@@ -32,9 +32,9 @@ pub fn process_active(active: ActiveEndpoint<'_, Websocket<TlsStream<MioStream>>
     Ok(())
 }
 
-impl TradeEndpoint {
+impl TradeEndpointFactory {
     #[allow(dead_code)]
-    pub fn new(url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpoint {
+    pub fn new(url: &'static str, net_iface: Option<&'static str>, instrument: &'static str) -> TradeEndpointFactory {
         Self::new_with_subscribe(url, net_iface, instrument, true)
     }
 
@@ -43,7 +43,7 @@ impl TradeEndpoint {
         net_iface: Option<&'static str>,
         instrument: &'static str,
         subscribe: bool,
-    ) -> TradeEndpoint {
+    ) -> TradeEndpointFactory {
         let (mut connection_info, ws_endpoint, _) = boomnet::ws::util::parse_url(url).unwrap();
         if let Some(net_iface) = net_iface {
             connection_info = connection_info.with_net_iface_from_name(net_iface);
@@ -65,17 +65,17 @@ impl TradeEndpoint {
     }
 }
 
-impl ConnectionInfoProvider for TradeEndpoint {
+impl ConnectionInfoProvider for TradeEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TradeEndpoint {
+impl EndpointFactory for TradeEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<MioStream>>;
+    type Endpoint = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_tls_stream_with_config(|cfg| cfg.with_no_cert_verification())?

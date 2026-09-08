@@ -4,7 +4,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use boomnet::service::endpoint::Endpoint;
+use boomnet::service::endpoint::EndpointFactory;
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::{IOServiceEvent, IntoIOService};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
@@ -16,13 +16,13 @@ use url::Url;
 
 /// This example demonstrates how application logic can request a disconnect through an active
 /// endpoint guard. In this case, the endpoint is recreated every 10 seconds.
-struct TradeEndpoint {
+struct TradeEndpointFactory {
     connection_info: ConnectionInfo,
     instrument: &'static str,
 }
 
-impl TradeEndpoint {
-    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpoint {
+impl TradeEndpointFactory {
+    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpointFactory {
         let connection_info = Url::parse(url).try_into().unwrap();
         Self {
             connection_info,
@@ -59,17 +59,17 @@ impl FeedContext {
     }
 }
 
-impl ConnectionInfoProvider for TradeEndpoint {
+impl ConnectionInfoProvider for TradeEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TradeEndpoint {
+impl EndpointFactory for TradeEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<MioStream>>;
+    type Endpoint = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -93,9 +93,9 @@ fn main() -> anyhow::Result<()> {
 
     let mut io_service = MioSelector::new()?.into_io_service();
 
-    let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", "btcusdt");
+    let factory_btc = TradeEndpointFactory::new("wss://stream1.binance.com:443/ws", "btcusdt");
 
-    io_service.register(endpoint_btc)?;
+    io_service.register(factory_btc)?;
     loop {
         for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {

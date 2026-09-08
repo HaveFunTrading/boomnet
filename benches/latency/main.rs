@@ -2,7 +2,7 @@ use ::tungstenite::{Message, connect};
 use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 use tungstenite::Utf8Bytes;
 
-use crate::endpoint::{TestContext, TestEndpoint};
+use crate::endpoint::{TestContext, TestEndpointFactory};
 use ::boomnet::stream::buffer::IntoBufferedStream;
 use ::boomnet::ws::IntoWebsocket;
 use boomnet::service::IOServiceEvent;
@@ -64,7 +64,7 @@ fn boomnet_rtt_benchmark_io_service(c: &mut Criterion) {
     // setup io service
     let mut ctx = TestContext::new();
     let mut io_service = DirectSelector::new().unwrap().into_io_service();
-    io_service.register(TestEndpoint::new(9003, MSG)).unwrap();
+    io_service.register(TestEndpointFactory::new(9003, MSG)).unwrap();
 
     group.bench_function("boomnet_rtt_io_service", |b| {
         b.iter(|| {

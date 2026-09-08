@@ -1,6 +1,6 @@
 #[cfg(feature = "ktls")]
 mod deps {
-    pub use boomnet::service::endpoint::{DisconnectReason, Endpoint};
+    pub use boomnet::service::endpoint::{DisconnectReason, EndpointFactory};
     pub use boomnet::service::select::Selectable;
     pub use boomnet::service::select::mio::MioSelector;
     pub use boomnet::service::{IOServiceEvent, IntoIOService};
@@ -20,12 +20,12 @@ mod deps {
 use deps::*;
 
 #[cfg(feature = "ktls")]
-struct TradeConnectionFactory {
+struct TradeEndpointFactory {
     connection_info: ConnectionInfo,
 }
 
 #[cfg(feature = "ktls")]
-impl TradeConnectionFactory {
+impl TradeEndpointFactory {
     fn new() -> Self {
         Self {
             connection_info: ("fstream.binance.com", 443).into(),
@@ -34,12 +34,12 @@ impl TradeConnectionFactory {
 }
 
 #[cfg(feature = "ktls")]
-struct TradeConnection {
+struct TradeEndpoint {
     ws: Websocket<KtlsStream<MioStream>>,
 }
 
 #[cfg(feature = "ktls")]
-impl Selectable for TradeConnection {
+impl Selectable for TradeEndpoint {
     fn connected(&mut self) -> std::io::Result<bool> {
         self.ws.connected()
     }
@@ -54,7 +54,7 @@ impl Selectable for TradeConnection {
 }
 
 #[cfg(feature = "ktls")]
-impl Source for TradeConnection {
+impl Source for TradeEndpoint {
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> std::io::Result<()> {
         self.ws.register(registry, token, interests)
     }
@@ -69,18 +69,22 @@ impl Source for TradeConnection {
 }
 
 #[cfg(feature = "ktls")]
-impl ConnectionInfoProvider for TradeConnectionFactory {
+impl ConnectionInfoProvider for TradeEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
 #[cfg(feature = "ktls")]
-impl Endpoint for TradeConnectionFactory {
+impl EndpointFactory for TradeEndpointFactory {
     type Context = ();
-    type Target = TradeConnection;
+    type Endpoint = TradeEndpoint;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> std::io::Result<Option<Self::Target>> {
+    fn create_endpoint(
+        &mut self,
+        addr: SocketAddr,
+        _ctx: &mut Self::Context,
+    ) -> std::io::Result<Option<Self::Endpoint>> {
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
             .into_ktls_stream_with_config(|cfg| cfg.with_no_cert_verification())?
@@ -88,7 +92,7 @@ impl Endpoint for TradeConnectionFactory {
 
         ws.send_text(true, Some(b"{\"method\":\"SUBSCRIBE\",\"params\":[\"btcusdt@trade\"],\"id\":1}"))?;
 
-        Ok(Some(TradeConnection { ws }))
+        Ok(Some(TradeEndpoint { ws }))
     }
     fn can_recreate(&mut self, reason: &DisconnectReason, _ctx: &mut Self::Context) -> bool {
         println!("on disconnect: reason={}", reason);
@@ -102,13 +106,13 @@ fn main() -> anyhow::Result<()> {
         .into_io_service()
         .with_auto_disconnect(Duration::from_secs(10));
 
-    io_service.register(TradeConnectionFactory::new())?;
+    io_service.register(TradeEndpointFactory::new())?;
 
     loop {
         for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
-                let batch = active.try_with(|target| {
-                    target
+                let batch = active.try_with(|endpoint| {
+                    endpoint
                         .ws
                         .read_batch()
                         .map(|batch| batch.into_iter().map(|frame| frame.map_err(std::io::Error::from)))

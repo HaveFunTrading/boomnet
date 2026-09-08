@@ -1,7 +1,7 @@
 use std::io;
 use std::net::SocketAddr;
 
-use boomnet::service::endpoint::Endpoint;
+use boomnet::service::endpoint::EndpointFactory;
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::{IOServiceEvent, IntoIOService};
 use boomnet::stream::mio::{IntoMioStream, MioStream};
@@ -11,39 +11,39 @@ use boomnet::ws::{IntoTlsWebsocket, Websocket, WebsocketFrame};
 use log::info;
 use url::Url;
 
-enum MarketDataEndpoint {
-    Trade(TradeEndpoint),
-    Ticker(TickerEndpoint),
+enum MarketDataEndpointFactory {
+    Trade(TradeEndpointFactory),
+    Ticker(TickerEndpointFactory),
 }
 
-impl ConnectionInfoProvider for MarketDataEndpoint {
+impl ConnectionInfoProvider for MarketDataEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         match self {
-            MarketDataEndpoint::Ticker(ticker) => ticker.connection_info(),
-            MarketDataEndpoint::Trade(trade) => trade.connection_info(),
+            MarketDataEndpointFactory::Ticker(ticker) => ticker.connection_info(),
+            MarketDataEndpointFactory::Trade(trade) => trade.connection_info(),
         }
     }
 }
 
-impl Endpoint for MarketDataEndpoint {
+impl EndpointFactory for MarketDataEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<MioStream>>;
+    type Endpoint = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         match self {
-            MarketDataEndpoint::Ticker(ticker) => ticker.create_target(addr, ctx),
-            MarketDataEndpoint::Trade(trade) => trade.create_target(addr, ctx),
+            MarketDataEndpointFactory::Ticker(ticker) => ticker.create_endpoint(addr, ctx),
+            MarketDataEndpointFactory::Trade(trade) => trade.create_endpoint(addr, ctx),
         }
     }
 }
 
-struct TradeEndpoint {
+struct TradeEndpointFactory {
     connection_info: ConnectionInfo,
     instrument: &'static str,
 }
 
-impl TradeEndpoint {
-    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpoint {
+impl TradeEndpointFactory {
+    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpointFactory {
         let connection_info = Url::parse(url).try_into().unwrap();
         Self {
             connection_info,
@@ -52,17 +52,17 @@ impl TradeEndpoint {
     }
 }
 
-impl ConnectionInfoProvider for TradeEndpoint {
+impl ConnectionInfoProvider for TradeEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TradeEndpoint {
+impl EndpointFactory for TradeEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<MioStream>>;
+    type Endpoint = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -79,13 +79,13 @@ impl Endpoint for TradeEndpoint {
     }
 }
 
-struct TickerEndpoint {
+struct TickerEndpointFactory {
     connection_info: ConnectionInfo,
     instrument: &'static str,
 }
 
-impl TickerEndpoint {
-    pub fn new(url: &'static str, instrument: &'static str) -> TickerEndpoint {
+impl TickerEndpointFactory {
+    pub fn new(url: &'static str, instrument: &'static str) -> TickerEndpointFactory {
         let connection_info = Url::parse(url).try_into().unwrap();
         Self {
             connection_info,
@@ -94,17 +94,17 @@ impl TickerEndpoint {
     }
 }
 
-impl ConnectionInfoProvider for TickerEndpoint {
+impl ConnectionInfoProvider for TickerEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TickerEndpoint {
+impl EndpointFactory for TickerEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<MioStream>>;
+    type Endpoint = Websocket<TlsStream<MioStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         let mut ws = self
             .connection_info
             .clone()
@@ -126,8 +126,10 @@ fn main() -> anyhow::Result<()> {
 
     let mut io_service = MioSelector::new()?.into_io_service();
 
-    let ticker = MarketDataEndpoint::Ticker(TickerEndpoint::new("wss://stream.binance.com:443/ws", "btcusdt"));
-    let trade = MarketDataEndpoint::Trade(TradeEndpoint::new("wss://stream.binance.com:443/ws", "ethusdt"));
+    let ticker =
+        MarketDataEndpointFactory::Ticker(TickerEndpointFactory::new("wss://stream.binance.com:443/ws", "btcusdt"));
+    let trade =
+        MarketDataEndpointFactory::Trade(TradeEndpointFactory::new("wss://stream.binance.com:443/ws", "ethusdt"));
 
     let ticker_handle = io_service.register(ticker)?;
     let trade_handle = io_service.register(trade)?;

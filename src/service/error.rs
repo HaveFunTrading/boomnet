@@ -8,12 +8,12 @@ use std::io;
 /// Operation being performed when an [`IOServiceError::IO`] occurred.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum IOServiceOperation {
-    /// Creating an endpoint through a registered factory.
-    CreateEndpoint,
+    /// Building a factory through [`crate::service::IOService::register_with`].
+    CreateFactory,
     /// Resolving an endpoint address.
     Resolve,
-    /// Creating a connected target for an endpoint.
-    CreateTarget,
+    /// Creating an endpoint through a registered factory.
+    CreateEndpoint,
     /// Polling the configured selector.
     PollSelector,
     /// Registering a connected endpoint with the selector.
@@ -25,9 +25,9 @@ pub enum IOServiceOperation {
 impl Display for IOServiceOperation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CreateEndpoint => f.write_str("create endpoint"),
+            Self::CreateFactory => f.write_str("create endpoint factory"),
             Self::Resolve => f.write_str("resolve endpoint"),
-            Self::CreateTarget => f.write_str("create endpoint target"),
+            Self::CreateEndpoint => f.write_str("create endpoint"),
             Self::PollSelector => f.write_str("poll selector"),
             Self::Register => f.write_str("register endpoint"),
             Self::Unregister => f.write_str("unregister endpoint"),
@@ -40,14 +40,14 @@ impl Display for IOServiceOperation {
 pub enum IOServiceError {
     /// An underlying I/O operation failed.
     IO {
-        /// Endpoint associated with the failure, when applicable.
+        /// Registration associated with the failure, when applicable.
         handle: Option<Handle>,
         /// Operation that failed.
         operation: IOServiceOperation,
         /// Underlying I/O failure.
         source: io::Error,
     },
-    /// An endpoint disconnected and explicitly declined recreation.
+    /// An endpoint disconnected and its factory declined recreation.
     EndpointNotRecreatable {
         /// Terminal endpoint handle.
         handle: Handle,
@@ -56,7 +56,7 @@ pub enum IOServiceError {
     },
     /// Internal service state was inconsistent.
     InvalidState {
-        /// Endpoint associated with the invalid state, when applicable.
+        /// Registration associated with the invalid state, when applicable.
         handle: Option<Handle>,
         /// Description of the violated invariant.
         message: &'static str,

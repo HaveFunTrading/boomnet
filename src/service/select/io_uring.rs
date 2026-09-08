@@ -5,7 +5,7 @@
 //! ciphertext copy.
 
 use crate::service::dns::BlockingDnsResolver;
-use crate::service::endpoint::Endpoint;
+use crate::service::endpoint::EndpointFactory;
 use crate::service::node::{IONode, IONodes};
 use crate::service::select::{Selectable, Selector, SelectorToken};
 use crate::service::time::SystemTimeClockSource;
@@ -189,8 +189,8 @@ impl<S> IoUringSelector<S> {
 impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
     type Target = S;
 
-    fn register<E>(&mut self, token: SelectorToken, io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
-        let fd = io_node.as_target().as_raw_fd();
+    fn register<F>(&mut self, token: SelectorToken, io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
+        let fd = io_node.as_endpoint().as_raw_fd();
         self.arm(token, fd, Operation::Connect)?;
         self.ring.submit()?;
         self.registrations.insert(
@@ -203,8 +203,8 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
         Ok(())
     }
 
-    fn unregister<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
-        let fd = io_node.as_target().as_raw_fd();
+    fn unregister<F>(&mut self, io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
+        let fd = io_node.as_endpoint().as_raw_fd();
         let Some(token) = self
             .registrations
             .iter()
@@ -221,7 +221,7 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
         Ok(())
     }
 
-    fn poll<E>(&mut self, io_nodes: &mut IONodes<Self::Target, E>) -> io::Result<()> {
+    fn poll<F>(&mut self, io_nodes: &mut IONodes<Self::Target, F>) -> io::Result<()> {
         self.wait()?;
         self.collect_completions();
         self.rearms.clear();
@@ -254,8 +254,8 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
             };
             match operation {
                 Operation::Connect => {
-                    if io_node.as_target_mut().connected()? {
-                        io_node.as_target_mut().make_writable()?;
+                    if io_node.as_endpoint_mut().connected()? {
+                        io_node.as_endpoint_mut().make_writable()?;
                         self.registrations.get_mut(&token).unwrap().operation = Operation::Read;
                         self.rearms.push((token, registration.fd, Operation::Read));
                     } else {
@@ -263,7 +263,7 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
                     }
                 }
                 Operation::Read => {
-                    io_node.as_target_mut().make_readable()?;
+                    io_node.as_endpoint_mut().make_readable()?;
                     if !cqueue::more(flags) {
                         self.rearms.push((token, registration.fd, Operation::Read));
                     }
@@ -290,11 +290,11 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
     }
 }
 
-impl<E: Endpoint> IntoIOService<E> for IoUringSelector<E::Target>
+impl<F: EndpointFactory> IntoIOService<F> for IoUringSelector<F::Endpoint>
 where
-    E::Target: AsRawFd + Selectable,
+    F::Endpoint: AsRawFd + Selectable,
 {
-    fn into_io_service(self) -> IOService<Self, E, SystemTimeClockSource, BlockingDnsResolver> {
+    fn into_io_service(self) -> IOService<Self, F, SystemTimeClockSource, BlockingDnsResolver> {
         IOService::new(self, SystemTimeClockSource, BlockingDnsResolver)
     }
 }

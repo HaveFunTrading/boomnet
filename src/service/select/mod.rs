@@ -23,11 +23,11 @@ pub trait Selectable {
 pub trait Selector {
     type Target: Selectable;
 
-    fn register<E>(&mut self, selector_token: SelectorToken, io_node: &mut IONode<Self::Target, E>) -> io::Result<()>;
+    fn register<F>(&mut self, selector_token: SelectorToken, io_node: &mut IONode<Self::Target, F>) -> io::Result<()>;
 
-    fn unregister<E>(&mut self, io_node: &mut IONode<Self::Target, E>) -> io::Result<()>;
+    fn unregister<F>(&mut self, io_node: &mut IONode<Self::Target, F>) -> io::Result<()>;
 
-    fn poll<E>(&mut self, io_nodes: &mut IONodes<Self::Target, E>) -> io::Result<()>;
+    fn poll<F>(&mut self, io_nodes: &mut IONodes<Self::Target, F>) -> io::Result<()>;
 
     fn next_token(&mut self) -> SelectorToken;
 }

@@ -2,7 +2,7 @@ use std::io;
 use std::marker::PhantomData;
 
 use crate::service::dns::BlockingDnsResolver;
-use crate::service::endpoint::Endpoint;
+use crate::service::endpoint::EndpointFactory;
 use crate::service::node::{IONode, IONodes};
 use crate::service::select::{Selectable, Selector, SelectorToken};
 use crate::service::time::SystemTimeClockSource;
@@ -25,19 +25,19 @@ impl<S> DirectSelector<S> {
 impl<S: Selectable> Selector for DirectSelector<S> {
     type Target = S;
 
-    fn register<E>(
+    fn register<F>(
         &mut self,
         _selector_token: SelectorToken,
-        _io_node: &mut IONode<Self::Target, E>,
+        _io_node: &mut IONode<Self::Target, F>,
     ) -> io::Result<()> {
         Ok(())
     }
 
-    fn unregister<E>(&mut self, _io_node: &mut IONode<Self::Target, E>) -> io::Result<()> {
+    fn unregister<F>(&mut self, _io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
         Ok(())
     }
 
-    fn poll<E>(&mut self, _io_nodes: &mut IONodes<Self::Target, E>) -> io::Result<()> {
+    fn poll<F>(&mut self, _io_nodes: &mut IONodes<Self::Target, F>) -> io::Result<()> {
         Ok(())
     }
 
@@ -48,8 +48,8 @@ impl<S: Selectable> Selector for DirectSelector<S> {
     }
 }
 
-impl<E: Endpoint> IntoIOService<E> for DirectSelector<E::Target> {
-    fn into_io_service(self) -> IOService<Self, E, SystemTimeClockSource, BlockingDnsResolver>
+impl<F: EndpointFactory> IntoIOService<F> for DirectSelector<F::Endpoint> {
+    fn into_io_service(self) -> IOService<Self, F, SystemTimeClockSource, BlockingDnsResolver>
     where
         Self: Selector,
         Self: Sized,

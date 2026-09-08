@@ -3,8 +3,8 @@
 use std::io;
 use std::net::SocketAddr;
 
-use crate::common::{TradeEndpoint, process_active};
-use boomnet::service::endpoint::{DisconnectReason, Endpoint};
+use crate::common::{TradeEndpointFactory, process_active};
+use boomnet::service::endpoint::{DisconnectReason, EndpointFactory};
 use boomnet::service::select::mio::MioSelector;
 use boomnet::service::{IOServiceEvent, IntoIOService};
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
@@ -14,29 +14,29 @@ mod common;
 
 #[derive(Default, Debug)]
 struct FeedContext {
-    targets_created: usize,
+    endpoints_created: usize,
     disconnects: usize,
     active_events: usize,
 }
 
-struct TrackedEndpoint(TradeEndpoint);
+struct TrackedEndpointFactory(TradeEndpointFactory);
 
-impl ConnectionInfoProvider for TrackedEndpoint {
+impl ConnectionInfoProvider for TrackedEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         self.0.connection_info()
     }
 }
 
-impl Endpoint for TrackedEndpoint {
-    type Target = <TradeEndpoint as Endpoint>::Target;
+impl EndpointFactory for TrackedEndpointFactory {
+    type Endpoint = <TradeEndpointFactory as EndpointFactory>::Endpoint;
     type Context = FeedContext;
 
-    fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
-        let target = self.0.create_target(addr, &mut ())?;
-        if target.is_some() {
-            ctx.targets_created += 1;
+    fn create_endpoint(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
+        let endpoint = self.0.create_endpoint(addr, &mut ())?;
+        if endpoint.is_some() {
+            ctx.endpoints_created += 1;
         }
-        Ok(target)
+        Ok(endpoint)
     }
 
     fn can_recreate(&mut self, reason: &DisconnectReason, ctx: &mut Self::Context) -> bool {
@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     let mut ctx = FeedContext::default();
     let mut io_service = MioSelector::new()?.into_io_service();
     for instrument in ["btcusdt", "ethusdt", "xrpusdt"] {
-        io_service.register(TrackedEndpoint(TradeEndpoint::new(
+        io_service.register(TrackedEndpointFactory(TradeEndpointFactory::new(
             "wss://stream.binance.com:443/ws",
             None,
             instrument,

@@ -63,7 +63,8 @@ let mut io_service = MioSelector::new()?.into_io_service();
 The last layer manages lifecycle of endpoints and provides auxiliary services (such as asynchronous DNS resolution and
 auto disconnect) through the `IOService`.
 
-`Endpoint` serves as connection factory and is where application logic lives. `IOService` oversees the connection lifecycle within endpoints.
+`EndpointFactory` holds connection configuration and lifecycle policy. `IOService` retains each registered
+factory across reconnects and exposes its live endpoint through `ActiveEndpoint` for application I/O.
 
 ## Protocols
 The aim is to support a variety of protocols, including WebSocket, HTTP, and FIX.
@@ -88,35 +89,35 @@ Provides http 1.1 client that is compatible with any non-blocking stream and doe
 The repository contains comprehensive list of [examples](https://github.com/HaveFunTrading/boomnet/tree/main/examples).
 
 The following example illustrates how to use multiple websocket connections with `IOService` in order to consume messages from the Binance cryptocurrency
-exchange. First, we define an `Endpoint` whose target is a WebSocket over TLS.
+exchange. First, we define an `EndpointFactory` that creates a WebSocket over TLS.
 
 ```rust
 
-struct TradeEndpoint {
+struct TradeEndpointFactory {
     connection_info: ConnectionInfo,
     ws_endpoint: String,
     instrument: &'static str,
 }
 
-impl TradeEndpoint {
-    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpoint {
+impl TradeEndpointFactory {
+    pub fn new(url: &'static str, instrument: &'static str) -> TradeEndpointFactory {
         let (connection_info, ws_endpoint, _) = boomnet::ws::util::parse_url(url).unwrap();
         Self { connection_info, ws_endpoint, instrument, }
     }
 }
 
-impl ConnectionInfoProvider for TradeEndpoint {
+impl ConnectionInfoProvider for TradeEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TradeEndpoint {
+impl EndpointFactory for TradeEndpointFactory {
     type Context = ();
-    type Target = Websocket<TlsStream<MioStream>>;
+    type Endpoint = Websocket<TlsStream<MioStream>>;
 
     // called by the IO service whenever a connection has to be established for this endpoint
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
 
         let mut ws = TcpStream::try_from((&self.connection_info, addr))?
             .into_mio_stream()
@@ -133,22 +134,23 @@ impl Endpoint for TradeEndpoint {
 }
 ```
 
-After defining the endpoint, it is registered with the `IOService` and polled within an event loop. The service handles
-connection lifecycle and exposes every active target through an `ActiveEndpoint` guard. I/O performed with `try_with`
-automatically starts the endpoint's reconnection lifecycle if it fails.
+After defining the factory, it is registered with the `IOService` and polled within an event loop. The service handles
+connection lifecycle and exposes every active endpoint through an `ActiveEndpoint` guard. I/O performed with `try_with`
+automatically starts the endpoint's reconnection lifecycle if it fails. The handle returned by `register`
+identifies the registration and stays the same when the factory creates a replacement endpoint.
 
 ```rust
 
 fn main() -> anyhow::Result<()> {
     let mut io_service = MioSelector::new()?.into_io_service();
 
-    let endpoint_btc = TradeEndpoint::new("wss://stream1.binance.com:443/ws", "btcusdt");
-    let endpoint_eth = TradeEndpoint::new("wss://stream2.binance.com:443/ws", "ethusdt");
-    let endpoint_xrp = TradeEndpoint::new("wss://stream3.binance.com:443/ws", "xrpusdt");
+    let factory_btc = TradeEndpointFactory::new("wss://stream1.binance.com:443/ws", "btcusdt");
+    let factory_eth = TradeEndpointFactory::new("wss://stream2.binance.com:443/ws", "ethusdt");
+    let factory_xrp = TradeEndpointFactory::new("wss://stream3.binance.com:443/ws", "xrpusdt");
 
-    io_service.register(endpoint_btc)?;
-    io_service.register(endpoint_eth)?;
-    io_service.register(endpoint_xrp)?;
+    io_service.register(factory_btc)?;
+    io_service.register(factory_eth)?;
+    io_service.register(factory_xrp)?;
 
     loop {
         // will never block
@@ -169,9 +171,9 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-Each endpoint declares its lifecycle context with `type Context`. Use `()` when callbacks need
+Each factory declares its lifecycle context with `type Context`. Use `()` when callbacks need
 no shared state, as above, and pass `&mut ()` to `poll`. To use application state, set the
-associated type on the same `Endpoint` trait:
+associated type on the same `EndpointFactory` trait:
 
 ```rust
 #[derive(Default)]
@@ -180,11 +182,11 @@ struct FeedContext {
     frames_processed: usize,
 }
 
-impl Endpoint for TradeEndpoint {
-    type Target = Websocket<TlsStream<MioStream>>;
+impl EndpointFactory for TradeEndpointFactory {
+    type Endpoint = Websocket<TlsStream<MioStream>>;
     type Context = FeedContext;
 
-    fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>> {
+    fn create_endpoint(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>> {
         ctx.connection_attempts += 1;
         // Create and subscribe the WebSocket as above.
         // ...
@@ -192,14 +194,14 @@ impl Endpoint for TradeEndpoint {
 }
 ```
 
-Construction is the same for every endpoint. Context stays owned by the caller and is borrowed
+Service construction is the same for every factory. Context stays owned by the caller and is borrowed
 only during lifecycle callbacks. The returned iterator borrows the service, so application
 processing can immediately use context too:
 
 ```rust
 let mut context = FeedContext::default();
 let mut io_service = MioSelector::new()?.into_io_service();
-io_service.register(TradeEndpoint::new("wss://stream.binance.com:443/ws", "btcusdt"))?;
+io_service.register(TradeEndpointFactory::new("wss://stream.binance.com:443/ws", "btcusdt"))?;
 
 loop {
     for event in io_service.poll(&mut context)? {
@@ -217,7 +219,7 @@ loop {
 ```
 
 `dispatch` closures can also capture application state directly; there is no separate context
-argument. Explicit event iterator types only need the endpoint: `IOServiceEvents<'a, TradeEndpoint>`.
+argument. Explicit event iterator types only need the factory type: `IOServiceEvents<'a, TradeEndpointFactory>`.
 See [the context example](examples/io_service_with_context.rs) for a complete implementation that
 shares lifecycle counters across endpoints.
 

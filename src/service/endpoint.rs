@@ -1,4 +1,4 @@
-//! Entry point for the application logic.
+//! Endpoint creation and lifecycle policy.
 
 use crate::stream::ConnectionInfoProvider;
 use std::fmt::{Debug, Display};
@@ -6,29 +6,30 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-/// Describes how an I/O target is created and recreated by [`crate::service::IOService`].
-pub trait Endpoint: ConnectionInfoProvider {
-    /// Defines protocol and stream this endpoint operates on.
-    type Target;
+/// Creates I/O endpoints and defines their lifecycle policy for [`crate::service::IOService`].
+///
+/// Register the factory with the service. It retains the factory across reconnects and uses
+/// it to create a replacement endpoint whenever recreation is allowed.
+pub trait EndpointFactory: ConnectionInfoProvider {
+    /// The created I/O object, such as a WebSocket over a TLS stream.
+    type Endpoint;
 
     /// Shared state borrowed during lifecycle callbacks. Use `()` when no context is needed.
     type Context;
 
-    /// Used by the `IOService` to create connection upon disconnect by passing resolved `addr`.
-    /// If the endpoint does not want to connect at this stage it should return `Ok(None)` and
-    /// await the next connection attempt with (possibly) different `addr`.
-    fn create_target(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Target>>;
+    /// Create an endpoint using the resolved address, on initial connection or reconnection.
+    /// Return `Ok(None)` to defer creation until a later attempt, possibly with a different address.
+    fn create_endpoint(&mut self, addr: SocketAddr, ctx: &mut Self::Context) -> io::Result<Option<Self::Endpoint>>;
 
-    /// Upon disconnection `IOService` will query the endpoint if the connection should be
-    /// recreated, passing the disconnect `reason`. Returning `false` makes the service return
+    /// Decide whether the service should recreate a disconnected endpoint.
+    /// Returning `false` makes the service return
     /// [`crate::service::IOServiceError::EndpointNotRecreatable`].
     fn can_recreate(&mut self, _reason: &DisconnectReason, _ctx: &mut Self::Context) -> bool {
         true
     }
 
-    /// When `auto_disconnect` is used the service will check with the endpoint before
-    /// disconnecting. If `false` is returned the service will update the endpoint next
-    /// disconnect time as per the `auto_disconnect` configuration.
+    /// Decide whether an endpoint whose configured TTL has expired may be disconnected.
+    /// Returning `false` extends its lifetime using the service's `auto_disconnect` configuration.
     fn can_auto_disconnect(&mut self, _ctx: &mut Self::Context) -> bool {
         true
     }
@@ -54,15 +55,5 @@ impl Display for DisconnectReason {
                 write!(f, "{err}")
             }
         }
-    }
-}
-
-impl DisconnectReason {
-    pub(crate) fn auto_disconnect(ttl: Duration) -> DisconnectReason {
-        DisconnectReason::AutoDisconnect(ttl)
-    }
-
-    pub(crate) fn other(err: io::Error) -> DisconnectReason {
-        DisconnectReason::IO(err)
     }
 }

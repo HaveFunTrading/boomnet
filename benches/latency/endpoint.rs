@@ -1,4 +1,4 @@
-use boomnet::service::endpoint::Endpoint;
+use boomnet::service::endpoint::EndpointFactory;
 use boomnet::stream::buffer::{BufferedStream, IntoBufferedStream};
 use boomnet::stream::tcp::TcpStream;
 use boomnet::stream::{ConnectionInfo, ConnectionInfoProvider};
@@ -19,21 +19,25 @@ impl TestContext {
     }
 }
 
-pub struct TestEndpoint {
+pub struct TestEndpointFactory {
     connection_info: ConnectionInfo,
 }
 
-impl ConnectionInfoProvider for TestEndpoint {
+impl ConnectionInfoProvider for TestEndpointFactory {
     fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
     }
 }
 
-impl Endpoint for TestEndpoint {
+impl EndpointFactory for TestEndpointFactory {
     type Context = ();
-    type Target = Websocket<BufferedStream<TcpStream>>;
+    type Endpoint = Websocket<BufferedStream<TcpStream>>;
 
-    fn create_target(&mut self, addr: SocketAddr, _ctx: &mut Self::Context) -> std::io::Result<Option<Self::Target>> {
+    fn create_endpoint(
+        &mut self,
+        addr: SocketAddr,
+        _ctx: &mut Self::Context,
+    ) -> std::io::Result<Option<Self::Endpoint>> {
         let ws = self
             .connection_info
             .clone()
@@ -44,7 +48,7 @@ impl Endpoint for TestEndpoint {
     }
 }
 
-impl TestEndpoint {
+impl TestEndpointFactory {
     pub fn new(port: u16, _payload: &'static str) -> Self {
         Self {
             connection_info: ConnectionInfo::new("127.0.0.1", port),

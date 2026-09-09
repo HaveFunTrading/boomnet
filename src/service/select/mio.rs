@@ -7,8 +7,7 @@ use mio::{Events, Interest, Poll, Token};
 
 use crate::service::dns::BlockingDnsResolver;
 use crate::service::endpoint::EndpointFactory;
-use crate::service::node::{IONode, IONodes};
-use crate::service::select::{Selectable, Selector, SelectorToken};
+use crate::service::select::{ActiveEndpointLookup, Selectable, Selector, SelectorToken};
 use crate::service::time::SystemTimeClockSource;
 use crate::service::{IOService, IntoIOService};
 
@@ -17,7 +16,6 @@ const NO_WAIT: Option<Duration> = Some(Duration::from_millis(0));
 pub struct MioSelector<S> {
     poll: Poll,
     events: Events,
-    next_token: u32,
     phantom: PhantomData<S>,
 }
 
@@ -26,7 +24,6 @@ impl<S> MioSelector<S> {
         Ok(Self {
             poll: Poll::new()?,
             events: Events::with_capacity(1024),
-            next_token: 0,
             phantom: PhantomData,
         })
     }
@@ -35,26 +32,26 @@ impl<S> MioSelector<S> {
 impl<S: Source + Selectable> Selector for MioSelector<S> {
     type Target = S;
 
-    fn register<F>(&mut self, selector_token: SelectorToken, io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
-        let token = Token(selector_token as usize);
-        self.poll
-            .registry()
-            .register(io_node.as_endpoint_mut(), token, Interest::WRITABLE)?;
+    fn register(&mut self, selector_token: SelectorToken, endpoint: &mut Self::Target) -> io::Result<()> {
+        let token = Token(
+            usize::try_from(selector_token)
+                .map_err(|_| io::Error::other("selector token exceeds platform capacity"))?,
+        );
+        self.poll.registry().register(endpoint, token, Interest::WRITABLE)?;
         Ok(())
     }
 
-    fn unregister<F>(&mut self, io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
-        self.poll.registry().deregister(io_node.as_endpoint_mut())
+    fn unregister(&mut self, _token: SelectorToken, endpoint: &mut Self::Target) -> io::Result<()> {
+        self.poll.registry().deregister(endpoint)
     }
 
-    fn poll<F>(&mut self, io_nodes: &mut IONodes<Self::Target, F>) -> io::Result<()> {
+    fn poll(&mut self, endpoints: &mut impl ActiveEndpointLookup<Self::Target>) -> io::Result<()> {
         self.poll.poll(&mut self.events, NO_WAIT)?;
         for ev in self.events.iter() {
             let token = ev.token();
-            let endpoint = io_nodes
-                .get_mut(token.0 as SelectorToken)
-                .ok_or_else(|| io::Error::other("io node not found"))?
-                .as_endpoint_mut();
+            let Some(endpoint) = endpoints.get_active_mut(token.0 as SelectorToken) else {
+                continue;
+            };
             if ev.is_writable() && endpoint.connected()? {
                 endpoint.make_writable()?;
                 self.poll.registry().reregister(endpoint, token, Interest::READABLE)?;
@@ -64,13 +61,6 @@ impl<S: Source + Selectable> Selector for MioSelector<S> {
             }
         }
         Ok(())
-    }
-
-    #[inline]
-    fn next_token(&mut self) -> SelectorToken {
-        let token = self.next_token;
-        self.next_token += 1;
-        token
     }
 }
 

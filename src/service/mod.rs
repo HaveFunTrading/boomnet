@@ -9,15 +9,15 @@ use std::time::Duration;
 use crate::service::dns::{BlockingDnsResolver, DnsQuery, DnsResolver};
 use crate::service::endpoint::{DisconnectReason, EndpointFactory};
 use crate::service::error::IOServiceOperation;
-use crate::service::node::{IONode, IONodes};
-use crate::service::select::{Selector, SelectorToken};
+use crate::service::registration::{ActiveState, EndpointState, Registration, Registrations};
+use crate::service::select::Selector;
 use crate::service::time::{SystemTimeClockSource, TimeSource};
 use crate::stream::ConnectionInfoProvider;
 
 pub mod dns;
 pub mod endpoint;
 pub mod error;
-mod node;
+mod registration;
 pub mod select;
 pub mod time;
 
@@ -28,14 +28,14 @@ const ENDPOINT_CREATION_THROTTLE_NS: u64 = Duration::from_secs(1).as_nanos() as 
 /// Identifies a factory registration and its successive endpoints across reconnects.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
-pub struct Handle(SelectorToken);
+pub struct Handle(u32);
 
 /// Retains registered [`EndpointFactory`] values and manages the endpoints they create.
 /// A [`Selector`] drives I/O readiness for the active endpoints.
 pub struct IOService<S: Selector, F, TS, D: DnsResolver> {
     selector: S,
-    pending_factories: VecDeque<(Handle, D::Query, u64, F)>,
-    io_nodes: IONodes<S::Target, F>,
+    pending: VecDeque<Handle>,
+    registrations: Registrations<S::Target, F, D::Query>,
     next_endpoint_create_time_ns: u64,
     auto_disconnect: Option<Box<dyn Fn() -> Duration>>,
     time_source: TS,
@@ -154,20 +154,25 @@ enum LifecycleEvent {
     Disconnected { handle: Handle, reason: DisconnectReason },
 }
 
-enum IOServiceEventsInner<'a, F: EndpointFactory> {
+type RegistrationIter<'a, F, D> =
+    std::slice::IterMut<'a, Option<Registration<<F as EndpointFactory>::Endpoint, F, <D as DnsResolver>::Query>>>;
+
+enum IOServiceEventsInner<'a, F: EndpointFactory, D: DnsResolver> {
     Lifecycle(Option<LifecycleEvent>),
-    Active(std::slice::IterMut<'a, Option<IONode<F::Endpoint, F>>>),
+    Active(RegistrationIter<'a, F, D>),
 }
 
 /// Iterator over the result of one service poll.
 ///
 /// A poll that performs a lifecycle transition yields exactly one lifecycle event. Otherwise,
 /// the iterator visits every active endpoint once.
-pub struct IOServiceEvents<'a, F: EndpointFactory> {
-    inner: IOServiceEventsInner<'a, F>,
+///
+/// `D` is the service's DNS resolver type and defaults to [`BlockingDnsResolver`].
+pub struct IOServiceEvents<'a, F: EndpointFactory, D: DnsResolver = BlockingDnsResolver> {
+    inner: IOServiceEventsInner<'a, F, D>,
 }
 
-impl<'a, F: EndpointFactory> IOServiceEvents<'a, F> {
+impl<'a, F: EndpointFactory, D: DnsResolver> IOServiceEvents<'a, F, D> {
     #[inline]
     fn lifecycle(event: LifecycleEvent) -> Self {
         Self {
@@ -176,14 +181,14 @@ impl<'a, F: EndpointFactory> IOServiceEvents<'a, F> {
     }
 
     #[inline]
-    fn active(nodes: std::slice::IterMut<'a, Option<IONode<F::Endpoint, F>>>) -> Self {
+    fn active(nodes: RegistrationIter<'a, F, D>) -> Self {
         Self {
             inner: IOServiceEventsInner::Active(nodes),
         }
     }
 }
 
-impl<'a, F: EndpointFactory> Iterator for IOServiceEvents<'a, F> {
+impl<'a, F: EndpointFactory, D: DnsResolver> Iterator for IOServiceEvents<'a, F, D> {
     type Item = IOServiceEvent<'a, F::Endpoint>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -193,14 +198,17 @@ impl<'a, F: EndpointFactory> Iterator for IOServiceEvents<'a, F> {
                 LifecycleEvent::Disconnected { handle, reason } => IOServiceEvent::Disconnected { handle, reason },
             }),
             IOServiceEventsInner::Active(nodes) => {
-                for node in nodes.by_ref().flatten() {
-                    if node.pending_disconnect.is_some() {
+                for registration in nodes.by_ref().flatten() {
+                    let EndpointState::Active(active) = &mut registration.state else {
+                        continue;
+                    };
+                    if active.pending_disconnect.is_some() {
                         continue;
                     }
                     return Some(IOServiceEvent::Active(ActiveEndpoint {
-                        handle: node.factory.0,
-                        endpoint: &mut node.endpoint,
-                        pending_disconnect: &mut node.pending_disconnect,
+                        handle: registration.handle,
+                        endpoint: &mut active.endpoint,
+                        pending_disconnect: &mut active.pending_disconnect,
                     }));
                 }
                 None
@@ -223,8 +231,8 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
     pub fn new(selector: S, time_source: TS, dns_resolver: D) -> IOService<S, F, TS, D> {
         Self {
             selector,
-            pending_factories: VecDeque::new(),
-            io_nodes: IONodes::default(),
+            pending: VecDeque::new(),
+            registrations: Registrations::default(),
             next_endpoint_create_time_ns: 0,
             auto_disconnect: None,
             time_source,
@@ -262,9 +270,9 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
     pub fn with_time_source<T: TimeSource>(self, time_source: T) -> IOService<S, F, T, D> {
         IOService {
             time_source,
-            pending_factories: Default::default(),
+            pending: Default::default(),
             auto_disconnect: self.auto_disconnect,
-            io_nodes: Default::default(),
+            registrations: self.registrations.reset_with_query(),
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
             selector: self.selector,
             dns_resolver: self.dns_resolver,
@@ -276,9 +284,9 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
     pub fn with_dns_resolver<DR: DnsResolver>(self, dns_resolver: DR) -> IOService<S, F, TS, DR> {
         IOService {
             time_source: self.time_source,
-            pending_factories: Default::default(),
+            pending: Default::default(),
             auto_disconnect: self.auto_disconnect,
-            io_nodes: Default::default(),
+            registrations: self.registrations.reset_with_query(),
             next_endpoint_create_time_ns: self.next_endpoint_create_time_ns,
             selector: self.selector,
             dns_resolver,
@@ -295,14 +303,18 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
         F: ConnectionInfoProvider,
         TS: TimeSource,
     {
-        let handle = Handle(self.selector.next_token());
+        let handle = self
+            .registrations
+            .allocate_handle()
+            .map_err(|source| IOServiceError::io(None, IOServiceOperation::Register, source))?;
         let info = factory.connection_info();
         let query = self
             .dns_resolver
             .new_query(info.host(), info.port())
             .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source))?;
         let now = self.time_source.current_time_nanos();
-        self.pending_factories.push_back((handle, query, now, factory));
+        self.registrations.insert(handle, factory, query, now);
+        self.pending.push_back(handle);
         Ok(handle)
     }
 
@@ -316,7 +328,10 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
         TS: TimeSource,
         A: FnOnce(Handle) -> io::Result<F>,
     {
-        let handle = Handle(self.selector.next_token());
+        let handle = self
+            .registrations
+            .allocate_handle()
+            .map_err(|source| IOServiceError::io(None, IOServiceOperation::Register, source))?;
         let factory = build_factory(handle)
             .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::CreateFactory, source))?;
         let info = factory.connection_info();
@@ -325,88 +340,70 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
             .new_query(info.host(), info.port())
             .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source))?;
         let now = self.time_source.current_time_nanos();
-        self.pending_factories.push_back((handle, query, now, factory));
+        self.registrations.insert(handle, factory, query, now);
+        self.pending.push_back(handle);
         Ok(handle)
     }
 
     /// Remove a registration and its active endpoint, if any, and return the factory.
     pub fn deregister(&mut self, handle: Handle) -> Result<Option<F>, IOServiceError> {
-        if let Some(io_node) = self.io_nodes.get_mut(handle.0) {
+        if let Some(active) = self.registrations.get_mut(handle).and_then(Registration::active_mut) {
             self.selector
-                .unregister(io_node)
+                .unregister(active.token, &mut active.endpoint)
                 .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Unregister, source))?;
-            match self.io_nodes.remove(handle.0) {
-                Some(io_node) => Ok(Some(io_node.into_factory().1)),
-                None => Err(IOServiceError::InvalidState {
-                    handle: Some(handle),
-                    message: "endpoint disappeared after selector unregistration",
-                }),
-            }
-        } else {
-            let mut index_to_remove = None;
-            for (index, factory) in self.pending_factories.iter().enumerate() {
-                if factory.0 == handle {
-                    index_to_remove = Some(index);
-                    break;
-                }
-            }
-            if let Some(index_to_remove) = index_to_remove {
-                Ok(self
-                    .pending_factories
-                    .remove(index_to_remove)
-                    .map(|(_, _, _, factory)| factory))
-            } else {
-                Ok(None)
-            }
         }
+        self.pending.retain(|pending| *pending != handle);
+        Ok(self
+            .registrations
+            .remove(handle)
+            .map(|registration| registration.factory))
     }
 
     /// Iterate over active registrations as `(handle, endpoint, factory)`.
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (Handle, &S::Target, &F)> {
-        self.io_nodes.values().map(|io_node| {
-            let (endpoint, (handle, factory)) = io_node.as_parts();
-            (*handle, endpoint, factory)
+        self.registrations.values().filter_map(|registration| {
+            let active = registration.active()?;
+            Some((registration.handle, &active.endpoint, &registration.factory))
         })
     }
 
     /// Iterate mutably over active registrations as `(handle, endpoint, factory)`.
     #[inline]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut S::Target, &mut F)> {
-        self.io_nodes.values_mut().map(|io_node| {
-            let (endpoint, (handle, factory)) = io_node.as_parts_mut();
-            (*handle, endpoint, factory)
+        self.registrations.values_mut().filter_map(|registration| {
+            let EndpointState::Active(active) = &mut registration.state else {
+                return None;
+            };
+            Some((registration.handle, &mut active.endpoint, &mut registration.factory))
         })
     }
 
-    /// Iterate over `(handle, factory)` pairs awaiting endpoint creation.
+    /// Iterate over `(handle, factory)` pairs awaiting endpoint creation, in scheduling order.
     #[inline]
     pub fn pending(&self) -> impl Iterator<Item = (&Handle, &F)> {
-        self.pending_factories
-            .iter()
-            .map(|(handle, _, _, factory)| (handle, factory))
+        self.pending.iter().filter_map(|handle| {
+            self.registrations
+                .get(*handle)
+                .map(|registration| (handle, &registration.factory))
+        })
     }
 
-    #[inline]
-    fn resolve_dns(&self, query: &mut impl DnsQuery, created_time_ns: u64) -> io::Result<Option<SocketAddr>>
-    where
-        TS: TimeSource,
-    {
-        // check if dns query resolution timed out
-        if let Some(dns_query_timeout) = self.dns_query_timeout_ns {
-            let now = self.time_source.current_time_nanos();
-            if now > created_time_ns + dns_query_timeout {
-                return Err(io::Error::new(ErrorKind::TimedOut, "dns resolution timed out"));
-            }
+    fn resolve_dns(
+        query: &mut impl DnsQuery,
+        created_time_ns: u64,
+        now: u64,
+        timeout: Option<u64>,
+    ) -> io::Result<Option<SocketAddr>> {
+        if timeout.is_some_and(|timeout| now > created_time_ns.saturating_add(timeout)) {
+            return Err(io::Error::new(ErrorKind::TimedOut, "dns resolution timed out"));
         }
         match query.poll() {
-            Ok(addrs) => {
-                let addr = addrs
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| io::Error::other("dns resolution dio not return any address"))?;
-                Ok(Some(addr))
-            }
+            Ok(addrs) => addrs
+                .into_iter()
+                .next()
+                .map(Some)
+                .ok_or_else(|| io::Error::other("dns resolution did not return any address")),
             Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
             Err(err) => Err(err),
         }
@@ -417,76 +414,86 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
     where
         F: ConnectionInfoProvider,
         TS: TimeSource,
-        A: FnOnce(&mut F, SocketAddr) -> io::Result<Option<<S as Selector>::Target>>,
+        A: FnOnce(&mut F, SocketAddr) -> io::Result<Option<S::Target>>,
     {
-        let current_time_ns = self.time_source.current_time_nanos();
-        if current_time_ns > self.next_endpoint_create_time_ns {
-            if let Some((handle, mut query, query_time_ns, mut factory)) = self.pending_factories.pop_front() {
-                if let Some(addr) = self
-                    .resolve_dns(&mut query, query_time_ns)
-                    .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source))?
-                {
-                    match create_endpoint(&mut factory, addr).map_err(|source| {
-                        IOServiceError::io(Some(handle), IOServiceOperation::CreateEndpoint, source)
-                    })? {
-                        Some(endpoint) => {
-                            let ttl = self.auto_disconnect.as_ref().map(|auto_disconnect| auto_disconnect());
-                            let mut io_node = IONode::new(endpoint, handle, factory, ttl, &self.time_source);
-                            self.selector.register(handle.0, &mut io_node).map_err(|source| {
-                                IOServiceError::io(Some(handle), IOServiceOperation::Register, source)
-                            })?;
-                            self.io_nodes
-                                .insert(handle.0, io_node)
-                                .map_err(|_| IOServiceError::InvalidState {
-                                    handle: Some(handle),
-                                    message: "endpoint token is already active",
-                                })?;
-                            self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
-                            return Ok(Some(handle));
-                        }
-                        None => {
-                            // request new dns query
-                            let info = factory.connection_info();
-                            let query = self
-                                .dns_resolver
-                                .new_query(info.host(), info.port())
-                                .map_err(|source| {
-                                    IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source)
-                                })?;
-                            let now = self.time_source.current_time_nanos();
-                            self.pending_factories.push_back((handle, query, now, factory))
-                        }
-                    }
-                } else {
-                    self.pending_factories
-                        .push_back((handle, query, query_time_ns, factory))
+        let now = self.time_source.current_time_nanos();
+        if now <= self.next_endpoint_create_time_ns {
+            return Ok(None);
+        }
+        let Some(&handle) = self.pending.front() else {
+            return Ok(None);
+        };
+        let registration = self.registrations.get_mut(handle).ok_or(IOServiceError::InvalidState {
+            handle: Some(handle),
+            message: "pending registration is missing",
+        })?;
+        let EndpointState::Pending {
+            query,
+            query_started_ns,
+        } = &mut registration.state
+        else {
+            return Err(IOServiceError::InvalidState {
+                handle: Some(handle),
+                message: "queued registration is active",
+            });
+        };
+        let addr = Self::resolve_dns(query, *query_started_ns, now, self.dns_query_timeout_ns)
+            .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source))?;
+        if let Some(addr) = addr {
+            match create_endpoint(&mut registration.factory, addr)
+                .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::CreateEndpoint, source))?
+            {
+                Some(mut endpoint) => {
+                    let token = registration
+                        .next_token()
+                        .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Register, source))?;
+                    self.selector
+                        .register(token, &mut endpoint)
+                        .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Register, source))?;
+                    let ttl_ns = self
+                        .auto_disconnect
+                        .as_ref()
+                        .map_or(u64::MAX, |supplier| supplier().as_nanos() as u64);
+                    registration.state = EndpointState::Active(ActiveState {
+                        token,
+                        endpoint,
+                        ttl: Duration::from_nanos(ttl_ns),
+                        disconnect_time_ns: self.time_source.current_time_nanos().saturating_add(ttl_ns),
+                        pending_disconnect: None,
+                    });
+                    self.pending.pop_front();
+                    self.next_endpoint_create_time_ns = now.saturating_add(ENDPOINT_CREATION_THROTTLE_NS);
+                    return Ok(Some(handle));
+                }
+                None => {
+                    let info = registration.factory.connection_info();
+                    let query = self
+                        .dns_resolver
+                        .new_query(info.host(), info.port())
+                        .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source))?;
+                    registration.state = EndpointState::Pending {
+                        query,
+                        query_started_ns: self.time_source.current_time_nanos(),
+                    };
                 }
             }
-            self.next_endpoint_create_time_ns = current_time_ns + ENDPOINT_CREATION_THROTTLE_NS;
         }
+        // Preserve round-robin scheduling for DNS queries and deferred creation.
+        self.pending.rotate_left(1);
+        self.next_endpoint_create_time_ns = now.saturating_add(ENDPOINT_CREATION_THROTTLE_NS);
         Ok(None)
     }
 
-    fn remove_active_endpoint(&mut self, handle: Handle) -> Result<F, IOServiceError> {
-        let io_node = self.io_nodes.get_mut(handle.0).ok_or(IOServiceError::InvalidState {
-            handle: Some(handle),
-            message: "active endpoint is not registered",
-        })?;
-        self.selector
-            .unregister(io_node)
-            .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Unregister, source))?;
-        let io_node = self.io_nodes.remove(handle.0).ok_or(IOServiceError::InvalidState {
-            handle: Some(handle),
-            message: "endpoint disappeared after selector unregistration",
-        })?;
-        Ok(io_node.into_factory().1)
-    }
-
     #[inline]
-    fn take_pending_disconnect(&mut self) -> Option<(Handle, DisconnectReason)> {
-        self.io_nodes
-            .values_mut()
-            .find_map(|node| node.pending_disconnect.take().map(|reason| (node.factory.0, reason)))
+    fn pending_disconnect(&self) -> Option<(Handle, DisconnectReason)> {
+        self.registrations.values().find_map(|registration| {
+            let reason = registration.active()?.pending_disconnect.as_ref()?;
+            let reason = match reason {
+                DisconnectReason::AutoDisconnect(ttl) => DisconnectReason::AutoDisconnect(*ttl),
+                DisconnectReason::IO(error) => DisconnectReason::IO(copy_io_error(error)),
+            };
+            Some((registration.handle, reason))
+        })
     }
 
     #[inline]
@@ -494,12 +501,11 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
     where
         TS: TimeSource,
     {
-        self.auto_disconnect.as_ref().and_then(|_| {
-            let current_time_ns = self.time_source.current_time_nanos();
-            self.io_nodes
-                .values()
-                .find(|node| current_time_ns > node.disconnect_time_ns)
-                .map(|node| (node.factory.0, node.ttl))
+        self.auto_disconnect.as_ref()?;
+        let now = self.time_source.current_time_nanos();
+        self.registrations.values().find_map(|registration| {
+            let active = registration.active()?;
+            (now > active.disconnect_time_ns).then_some((registration.handle, active.ttl))
         })
     }
 
@@ -507,15 +513,19 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
         let Some(extension) = self
             .auto_disconnect
             .as_ref()
-            .map(|auto_disconnect| auto_disconnect().as_nanos() as u64)
+            .map(|supplier| supplier().as_nanos() as u64)
         else {
             return Ok(());
         };
-        let node = self.io_nodes.get_mut(handle.0).ok_or(IOServiceError::InvalidState {
-            handle: Some(handle),
-            message: "expired endpoint is not registered",
-        })?;
-        node.disconnect_time_ns = node.disconnect_time_ns.saturating_add(extension);
+        let active = self
+            .registrations
+            .get_mut(handle)
+            .and_then(Registration::active_mut)
+            .ok_or(IOServiceError::InvalidState {
+                handle: Some(handle),
+                message: "expired endpoint is not active",
+            })?;
+        active.disconnect_time_ns = active.disconnect_time_ns.saturating_add(extension);
         Ok(())
     }
 
@@ -530,34 +540,41 @@ impl<S: Selector, F, TS, D: DnsResolver> IOService<S, F, TS, D> {
         TS: TimeSource,
         A: FnOnce(&mut F, &DisconnectReason) -> bool,
     {
-        let recreate = {
-            let node = self.io_nodes.get_mut(handle.0).ok_or(IOServiceError::InvalidState {
-                handle: Some(handle),
-                message: "disconnected endpoint is not registered",
-            })?;
-            can_recreate(&mut node.as_factory_mut().1, &reason)
+        let registration = self.registrations.get_mut(handle).ok_or(IOServiceError::InvalidState {
+            handle: Some(handle),
+            message: "disconnected registration is missing",
+        })?;
+        let recreate = can_recreate(&mut registration.factory, &reason);
+        // Prepare the next state before unregistering, so a resolver failure leaves the current
+        // endpoint tracked and its disconnect reason available for a retry.
+        let pending = if recreate {
+            let info = registration.factory.connection_info();
+            let query = self
+                .dns_resolver
+                .new_query(info.host(), info.port())
+                .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source))?;
+            Some(EndpointState::Pending {
+                query,
+                query_started_ns: self.time_source.current_time_nanos(),
+            })
+        } else {
+            None
         };
-        let factory = self.remove_active_endpoint(handle)?;
-        if !recreate {
-            return Err(IOServiceError::EndpointNotRecreatable { handle, reason });
+        let active = registration.active_mut().ok_or(IOServiceError::InvalidState {
+            handle: Some(handle),
+            message: "disconnected endpoint is not active",
+        })?;
+        self.selector
+            .unregister(active.token, &mut active.endpoint)
+            .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Unregister, source))?;
+        if let Some(pending) = pending {
+            registration.state = pending;
+            self.pending.push_back(handle);
+            Ok(LifecycleEvent::Disconnected { handle, reason })
+        } else {
+            self.registrations.remove(handle);
+            Err(IOServiceError::EndpointNotRecreatable { handle, reason })
         }
-        self.schedule_reconnect(handle, factory)?;
-        Ok(LifecycleEvent::Disconnected { handle, reason })
-    }
-
-    fn schedule_reconnect(&mut self, handle: Handle, factory: F) -> Result<(), IOServiceError>
-    where
-        F: ConnectionInfoProvider,
-        TS: TimeSource,
-    {
-        let info = factory.connection_info();
-        let query = self
-            .dns_resolver
-            .new_query(info.host(), info.port())
-            .map_err(|source| IOServiceError::io(Some(handle), IOServiceOperation::Resolve, source))?;
-        let now = self.time_source.current_time_nanos();
-        self.pending_factories.push_back((handle, query, now, factory));
-        Ok(())
     }
 }
 
@@ -575,19 +592,18 @@ where
     ///
     /// The returned iterator borrows the service, but does not borrow `ctx`, allowing application
     /// logic to use its context while processing active endpoints.
-    pub fn poll(&mut self, ctx: &mut F::Context) -> Result<IOServiceEvents<'_, F>, IOServiceError> {
-        let lifecycle = if let Some((handle, reason)) = self.take_pending_disconnect() {
+    pub fn poll(&mut self, ctx: &mut F::Context) -> Result<IOServiceEvents<'_, F, D>, IOServiceError> {
+        let lifecycle = if let Some((handle, reason)) = self.pending_disconnect() {
             Some(self.disconnect_active(handle, reason, |factory, reason| factory.can_recreate(reason, ctx))?)
         } else if let Some((handle, ttl)) = self.expired_endpoint() {
             if self
-                .io_nodes
-                .get_mut(handle.0)
+                .registrations
+                .get_mut(handle)
                 .ok_or(IOServiceError::InvalidState {
                     handle: Some(handle),
                     message: "expired endpoint is not registered",
                 })?
-                .as_factory_mut()
-                .1
+                .factory
                 .can_auto_disconnect(ctx)
             {
                 let reason = DisconnectReason::AutoDisconnect(ttl);
@@ -596,7 +612,7 @@ where
                 self.defer_auto_disconnect(handle)?;
                 None
             }
-        } else if self.pending_factories.is_empty() {
+        } else if self.pending.is_empty() {
             None
         } else {
             self.check_pending_factories(|factory, addr| factory.create_endpoint(addr, ctx))?
@@ -608,10 +624,10 @@ where
         }
 
         self.selector
-            .poll(&mut self.io_nodes)
+            .poll(&mut self.registrations)
             .map_err(|source| IOServiceError::io(None, IOServiceOperation::PollSelector, source))?;
 
-        Ok(IOServiceEvents::active(self.io_nodes.slots_mut()))
+        Ok(IOServiceEvents::active(self.registrations.slots_mut()))
     }
 
     /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
@@ -622,14 +638,13 @@ where
     where
         A: FnMut(&mut F::Endpoint, &mut F) -> std::io::Result<T>,
     {
-        match self.io_nodes.get_mut(handle.0) {
-            Some(io_node) => {
-                let (endpoint, (_, factory)) = io_node.as_parts_mut();
-                let result = action(endpoint, factory)?;
-                Ok(Some(result))
-            }
-            None => Ok(None),
-        }
+        let Some(registration) = self.registrations.get_mut(handle) else {
+            return Ok(None);
+        };
+        let EndpointState::Active(active) = &mut registration.state else {
+            return Ok(None);
+        };
+        action(&mut active.endpoint, &mut registration.factory).map(Some)
     }
 }
 
@@ -637,7 +652,7 @@ where
 mod tests {
     use super::*;
     use crate::service::dns::{DnsQuery, DnsResolver};
-    use crate::service::select::Selectable;
+    use crate::service::select::{ActiveEndpointLookup, Selectable, SelectorToken};
     use std::cell::Cell;
     use std::rc::Rc;
 
@@ -662,28 +677,40 @@ mod tests {
 
     #[derive(Default)]
     struct TestSelector {
-        next_token: SelectorToken,
+        tokens: Vec<SelectorToken>,
+        stale_tokens: Vec<SelectorToken>,
+        fail_register: bool,
+        fail_unregister: bool,
     }
 
     impl Selector for TestSelector {
         type Target = TestEndpoint;
 
-        fn register<F>(&mut self, _token: SelectorToken, _node: &mut IONode<Self::Target, F>) -> io::Result<()> {
+        fn register(&mut self, token: SelectorToken, _endpoint: &mut Self::Target) -> io::Result<()> {
+            if self.fail_register {
+                return Err(io::Error::other("register failed"));
+            }
+            self.tokens.push(token);
             Ok(())
         }
 
-        fn unregister<F>(&mut self, _node: &mut IONode<Self::Target, F>) -> io::Result<()> {
+        fn unregister(&mut self, token: SelectorToken, _endpoint: &mut Self::Target) -> io::Result<()> {
+            if self.fail_unregister {
+                return Err(io::Error::other("unregister failed"));
+            }
+            self.tokens.retain(|active| *active != token);
+            self.stale_tokens.push(token);
             Ok(())
         }
 
-        fn poll<F>(&mut self, _nodes: &mut IONodes<Self::Target, F>) -> io::Result<()> {
+        fn poll(&mut self, endpoints: &mut impl ActiveEndpointLookup<Self::Target>) -> io::Result<()> {
+            for &token in &self.tokens {
+                assert!(endpoints.get_active_mut(token).is_some());
+            }
+            for &token in &self.stale_tokens {
+                assert!(endpoints.get_active_mut(token).is_none());
+            }
             Ok(())
-        }
-
-        fn next_token(&mut self) -> SelectorToken {
-            let token = self.next_token;
-            self.next_token += 1;
-            token
         }
     }
 
@@ -718,6 +745,9 @@ mod tests {
         connection_info: crate::stream::ConnectionInfo,
         fail_poll: bool,
         recreate: bool,
+        defer_create: bool,
+        fail_create: bool,
+        create_attempts: usize,
     }
 
     impl TestEndpointFactory {
@@ -727,6 +757,9 @@ mod tests {
                 connection_info: crate::stream::ConnectionInfo::new("localhost", 1234),
                 fail_poll: false,
                 recreate: true,
+                defer_create: false,
+                fail_create: false,
+                create_attempts: 0,
             }
         }
 
@@ -754,6 +787,13 @@ mod tests {
             _addr: SocketAddr,
             _ctx: &mut Self::Context,
         ) -> io::Result<Option<Self::Endpoint>> {
+            self.create_attempts += 1;
+            if std::mem::take(&mut self.defer_create) {
+                return Ok(None);
+            }
+            if std::mem::take(&mut self.fail_create) {
+                return Err(io::Error::other("creation failed"));
+            }
             Ok(Some(TestEndpoint {
                 id: self.id,
                 fail: self.fail_poll,
@@ -837,7 +877,7 @@ mod tests {
 
         // Context can defer an expired endpoint's automatic disconnection.
         now.set(2_000_000_002);
-        let events: IOServiceEvents<'_, ContextEndpointFactory> = service.poll(&mut ctx).unwrap();
+        let events: IOServiceEvents<'_, ContextEndpointFactory, FixedDns> = service.poll(&mut ctx).unwrap();
         assert_eq!(ctx.auto_disconnect_checks, 1);
         for event in events {
             let IOServiceEvent::Active(active) = event else {
@@ -898,6 +938,181 @@ mod tests {
             }) if h == handle
         ));
         assert_eq!(ctx.reconnect_checks, 2);
+    }
+
+    #[test]
+    fn deferred_creation_preserves_fifo_and_pending_deregistration() {
+        let now = Rc::new(Cell::new(1));
+        let mut service = service(ManualTime(now.clone()));
+        let mut supplied_handle = None;
+        let first = service
+            .register_with(|handle| {
+                supplied_handle = Some(handle);
+                Ok(TestEndpointFactory {
+                    defer_create: true,
+                    ..TestEndpointFactory::new(1)
+                })
+            })
+            .unwrap();
+        assert_eq!(supplied_handle, Some(first));
+        let second = service.register(TestEndpointFactory::new(2)).unwrap();
+        assert!(
+            service
+                .dispatch::<_, ()>(first, |_, _| panic!("pending endpoint dispatched"))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 0);
+        assert_eq!(service.pending().map(|(handle, _)| *handle).collect::<Vec<_>>(), [second, first]);
+        // The throttle neither rotates the queue nor invokes a factory again.
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 0);
+        assert_eq!(service.registrations.get(first).unwrap().factory.create_attempts, 1);
+        connect_next(&mut service, &now, 1_000_000_002);
+        assert_eq!(service.iter().map(|(handle, _, _)| handle).collect::<Vec<_>>(), [second]);
+        assert_eq!(service.registrations.values().count(), 2);
+        let removed = service.deregister(first).unwrap().unwrap();
+        assert_eq!(removed.create_attempts, 1);
+        assert_eq!(service.pending().count(), 0);
+        assert!(service.deregister(first).unwrap().is_none());
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn creation_and_selector_failures_preserve_the_registration() {
+        let now = Rc::new(Cell::new(1));
+        let mut service = service(ManualTime(now));
+        let handle = service
+            .register(TestEndpointFactory {
+                fail_create: true,
+                ..TestEndpointFactory::new(1)
+            })
+            .unwrap();
+        assert!(matches!(
+            service.poll(&mut ()),
+            Err(IOServiceError::IO {
+                operation: IOServiceOperation::CreateEndpoint,
+                ..
+            })
+        ));
+        assert_eq!(service.pending().next().unwrap().0, &handle);
+        service.selector.fail_register = true;
+        assert!(matches!(
+            service.poll(&mut ()),
+            Err(IOServiceError::IO {
+                operation: IOServiceOperation::Register,
+                ..
+            })
+        ));
+        assert_eq!(service.iter().count(), 0);
+        assert_eq!(service.pending().count(), 1);
+        service.selector.fail_register = false;
+        assert!(
+            matches!(service.poll(&mut ()).unwrap().next(), Some(IOServiceEvent::Connected { handle: h }) if h == handle)
+        );
+        service.selector.fail_unregister = true;
+        assert!(matches!(
+            service.deregister(handle),
+            Err(IOServiceError::IO {
+                operation: IOServiceOperation::Unregister,
+                ..
+            })
+        ));
+        assert_eq!(service.iter().count(), 1);
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 1);
+        service.selector.fail_unregister = false;
+        assert_eq!(service.deregister(handle).unwrap().unwrap().create_attempts, 3);
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 0);
+    }
+
+    struct ControlledDns {
+        ready: Rc<Cell<bool>>,
+        fail_new: Rc<Cell<bool>>,
+    }
+
+    struct ControlledQuery(Rc<Cell<bool>>);
+
+    impl DnsResolver for ControlledDns {
+        type Query = ControlledQuery;
+        fn new_query(&self, _host: impl AsRef<str>, _port: u16) -> io::Result<Self::Query> {
+            if self.fail_new.get() {
+                return Err(io::Error::other("DNS query creation failed"));
+            }
+            Ok(ControlledQuery(self.ready.clone()))
+        }
+    }
+
+    impl DnsQuery for ControlledQuery {
+        fn poll(&mut self) -> io::Result<impl IntoIterator<Item = SocketAddr>> {
+            if !self.0.get() {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            Ok([SocketAddr::from(([127, 0, 0, 1], 1234))])
+        }
+    }
+
+    #[test]
+    fn pending_dns_and_failed_reconnect_keep_factory_and_connection_identity() {
+        let now = Rc::new(Cell::new(1));
+        let ready = Rc::new(Cell::new(false));
+        let fail_new = Rc::new(Cell::new(false));
+        let mut service = IOService::new(
+            TestSelector::default(),
+            ManualTime(now.clone()),
+            ControlledDns {
+                ready: ready.clone(),
+                fail_new: fail_new.clone(),
+            },
+        );
+        let handle = service.register(TestEndpointFactory::new(1)).unwrap();
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 0);
+        assert_eq!(service.pending().next().unwrap().1.create_attempts, 0);
+        ready.set(true);
+        now.set(1_000_000_002);
+        assert!(
+            matches!(service.poll(&mut ()).unwrap().next(), Some(IOServiceEvent::Connected { handle: h }) if h == handle)
+        );
+        let old_token = service.selector.tokens[0];
+        for event in service.poll(&mut ()).unwrap() {
+            if let IOServiceEvent::Active(active) = event {
+                assert!(active.try_with::<()>(|_| Err(io::Error::other("disconnect"))).is_err());
+            }
+        }
+        fail_new.set(true);
+        assert!(matches!(
+            service.poll(&mut ()),
+            Err(IOServiceError::IO {
+                operation: IOServiceOperation::Resolve,
+                ..
+            })
+        ));
+        assert_eq!(service.selector.tokens, [old_token]);
+        assert!(
+            service
+                .registrations
+                .get(handle)
+                .unwrap()
+                .active()
+                .unwrap()
+                .pending_disconnect
+                .is_some()
+        );
+        fail_new.set(false);
+        assert!(
+            matches!(service.poll(&mut ()).unwrap().next(), Some(IOServiceEvent::Disconnected { handle: h, .. }) if h == handle)
+        );
+        assert!(service.registrations.get_active_mut(old_token).is_none());
+        assert_eq!(service.pending().next().unwrap().1.create_attempts, 1);
+        now.set(2_000_000_003);
+        assert!(
+            matches!(service.poll(&mut ()).unwrap().next(), Some(IOServiceEvent::Connected { handle: h }) if h == handle)
+        );
+        let new_token = service.selector.tokens[0];
+        assert_ne!(old_token, new_token);
+        assert!(service.registrations.get_active_mut(old_token).is_none());
+        assert!(service.registrations.get_active_mut(new_token).is_some());
+        assert_eq!(service.iter().next().unwrap().2.create_attempts, 2);
+        // The selector test double checks old completions against the same registration table.
+        assert_eq!(service.poll(&mut ()).unwrap().count(), 1);
     }
 
     #[test]

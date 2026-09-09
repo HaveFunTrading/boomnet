@@ -6,8 +6,7 @@
 
 use crate::service::dns::BlockingDnsResolver;
 use crate::service::endpoint::EndpointFactory;
-use crate::service::node::{IONode, IONodes};
-use crate::service::select::{Selectable, Selector, SelectorToken};
+use crate::service::select::{ActiveEndpointLookup, Selectable, Selector, SelectorToken};
 use crate::service::time::SystemTimeClockSource;
 use crate::service::{IOService, IntoIOService};
 use io_uring::{IoUring, cqueue, opcode, squeue, types};
@@ -42,46 +41,24 @@ impl Default for IoUringConfig {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[repr(u8)]
 enum Operation {
-    Connect = 1,
-    Read = 2,
-    Cancel = 3,
-}
-
-impl Operation {
-    fn from_user_data(user_data: u64) -> Option<Self> {
-        match (user_data >> 32) as u8 {
-            1 => Some(Self::Connect),
-            2 => Some(Self::Read),
-            3 => Some(Self::Cancel),
-            _ => None,
-        }
-    }
+    Connect,
+    Read,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Registration {
+struct PollRegistration {
     fd: RawFd,
     operation: Operation,
-}
-
-fn user_data(token: SelectorToken, operation: Operation) -> u64 {
-    ((operation as u64) << 32) | u64::from(token)
-}
-
-fn token_from_user_data(user_data: u64) -> SelectorToken {
-    user_data as SelectorToken
 }
 
 /// Readiness-only `io_uring` selector.
 pub struct IoUringSelector<S> {
     ring: IoUring,
     config: IoUringConfig,
-    registrations: HashMap<SelectorToken, Registration>,
+    registrations: HashMap<SelectorToken, PollRegistration>,
     completions: Vec<(u64, i32, u32)>,
     rearms: Vec<(SelectorToken, RawFd, Operation)>,
-    next_token: SelectorToken,
     phantom: PhantomData<S>,
 }
 
@@ -114,7 +91,6 @@ impl<S> IoUringSelector<S> {
             registrations: HashMap::new(),
             completions: Vec::with_capacity(completion_capacity),
             rearms: Vec::with_capacity(completion_capacity),
-            next_token: 0,
             phantom: PhantomData,
         })
     }
@@ -123,7 +99,7 @@ impl<S> IoUringSelector<S> {
         let pushed = {
             let mut submission = self.ring.submission();
             // SAFETY: the entry owns no userspace pointers and all referenced file descriptors
-            // remain owned by registered IO nodes until their poll requests are cancelled.
+            // remain owned by active endpoints until their poll requests are cancelled.
             unsafe { submission.push(&entry).is_ok() }
         };
         if pushed {
@@ -148,12 +124,11 @@ impl<S> IoUringSelector<S> {
         let flags = match operation {
             Operation::Connect => libc::POLLOUT | libc::POLLERR | libc::POLLHUP,
             Operation::Read => libc::POLLIN | libc::POLLERR | libc::POLLHUP,
-            Operation::Cancel => unreachable!(),
         } as u32;
         let entry = opcode::PollAdd::new(types::Fd(fd), flags)
             .multi(operation == Operation::Read)
             .build()
-            .user_data(user_data(token, operation));
+            .user_data(token);
         self.push(entry)
     }
 
@@ -189,13 +164,13 @@ impl<S> IoUringSelector<S> {
 impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
     type Target = S;
 
-    fn register<F>(&mut self, token: SelectorToken, io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
-        let fd = io_node.as_endpoint().as_raw_fd();
+    fn register(&mut self, token: SelectorToken, endpoint: &mut Self::Target) -> io::Result<()> {
+        let fd = endpoint.as_raw_fd();
         self.arm(token, fd, Operation::Connect)?;
         self.ring.submit()?;
         self.registrations.insert(
             token,
-            Registration {
+            PollRegistration {
                 fd,
                 operation: Operation::Connect,
             },
@@ -203,42 +178,31 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
         Ok(())
     }
 
-    fn unregister<F>(&mut self, io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
-        let fd = io_node.as_endpoint().as_raw_fd();
-        let Some(token) = self
-            .registrations
-            .iter()
-            .find_map(|(token, registration)| (registration.fd == fd).then_some(*token))
-        else {
+    fn unregister(&mut self, token: SelectorToken, _endpoint: &mut Self::Target) -> io::Result<()> {
+        if !self.registrations.contains_key(&token) {
             return Ok(());
-        };
-        let registration = self.registrations.remove(&token).unwrap();
-        let entry = opcode::PollRemove::new(user_data(token, registration.operation))
-            .build()
-            .user_data(user_data(token, Operation::Cancel));
+        }
+        // Each endpoint incarnation has a distinct token. Both the cancellation completion
+        // and any late readiness completions will be ignored after this token is removed.
+        let entry = opcode::PollRemove::new(token).build().user_data(token);
         self.push(entry)?;
         self.ring.submit()?;
+        self.registrations.remove(&token);
         Ok(())
     }
 
-    fn poll<F>(&mut self, io_nodes: &mut IONodes<Self::Target, F>) -> io::Result<()> {
+    fn poll(&mut self, endpoints: &mut impl ActiveEndpointLookup<Self::Target>) -> io::Result<()> {
         self.wait()?;
         self.collect_completions();
         self.rearms.clear();
 
         for index in 0..self.completions.len() {
-            let (data, result, flags) = self.completions[index];
-            let Some(operation) = Operation::from_user_data(data) else {
-                continue;
-            };
-            if operation == Operation::Cancel {
-                continue;
-            }
-            let token = token_from_user_data(data);
+            let (token, result, flags) = self.completions[index];
             let Some(registration) = self.registrations.get(&token).copied() else {
                 continue;
             };
-            if registration.operation != operation {
+            // POLL_ADD produces a nonzero readiness mask; zero is a successful POLL_REMOVE.
+            if result == 0 {
                 continue;
             }
             if result < 0 {
@@ -249,13 +213,13 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
                 return Err(io::Error::from_raw_os_error(errno));
             }
 
-            let Some(io_node) = io_nodes.get_mut(token) else {
+            let Some(endpoint) = endpoints.get_active_mut(token) else {
                 continue;
             };
-            match operation {
+            match registration.operation {
                 Operation::Connect => {
-                    if io_node.as_endpoint_mut().connected()? {
-                        io_node.as_endpoint_mut().make_writable()?;
+                    if endpoint.connected()? {
+                        endpoint.make_writable()?;
                         self.registrations.get_mut(&token).unwrap().operation = Operation::Read;
                         self.rearms.push((token, registration.fd, Operation::Read));
                     } else {
@@ -263,12 +227,11 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
                     }
                 }
                 Operation::Read => {
-                    io_node.as_endpoint_mut().make_readable()?;
+                    endpoint.make_readable()?;
                     if !cqueue::more(flags) {
                         self.rearms.push((token, registration.fd, Operation::Read));
                     }
                 }
-                Operation::Cancel => unreachable!(),
             }
         }
 
@@ -280,13 +243,6 @@ impl<S: AsRawFd + Selectable> Selector for IoUringSelector<S> {
         }
         self.submit_pending()?;
         Ok(())
-    }
-
-    #[inline]
-    fn next_token(&mut self) -> SelectorToken {
-        let token = self.next_token;
-        self.next_token = self.next_token.wrapping_add(1);
-        token
     }
 }
 

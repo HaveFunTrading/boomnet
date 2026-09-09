@@ -3,48 +3,33 @@ use std::marker::PhantomData;
 
 use crate::service::dns::BlockingDnsResolver;
 use crate::service::endpoint::EndpointFactory;
-use crate::service::node::{IONode, IONodes};
-use crate::service::select::{Selectable, Selector, SelectorToken};
+use crate::service::select::{ActiveEndpointLookup, Selectable, Selector, SelectorToken};
 use crate::service::time::SystemTimeClockSource;
 use crate::service::{IOService, IntoIOService};
 
 pub struct DirectSelector<S> {
-    next_token: u32,
     phantom: PhantomData<S>,
 }
 
 impl<S> DirectSelector<S> {
     pub fn new() -> io::Result<DirectSelector<S>> {
-        Ok(Self {
-            next_token: 0,
-            phantom: PhantomData,
-        })
+        Ok(Self { phantom: PhantomData })
     }
 }
 
 impl<S: Selectable> Selector for DirectSelector<S> {
     type Target = S;
 
-    fn register<F>(
-        &mut self,
-        _selector_token: SelectorToken,
-        _io_node: &mut IONode<Self::Target, F>,
-    ) -> io::Result<()> {
+    fn register(&mut self, _token: SelectorToken, _endpoint: &mut Self::Target) -> io::Result<()> {
         Ok(())
     }
 
-    fn unregister<F>(&mut self, _io_node: &mut IONode<Self::Target, F>) -> io::Result<()> {
+    fn unregister(&mut self, _token: SelectorToken, _endpoint: &mut Self::Target) -> io::Result<()> {
         Ok(())
     }
 
-    fn poll<F>(&mut self, _io_nodes: &mut IONodes<Self::Target, F>) -> io::Result<()> {
+    fn poll(&mut self, _endpoints: &mut impl ActiveEndpointLookup<Self::Target>) -> io::Result<()> {
         Ok(())
-    }
-
-    fn next_token(&mut self) -> SelectorToken {
-        let token = self.next_token;
-        self.next_token += 1;
-        token
     }
 }
 

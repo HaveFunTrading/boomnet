@@ -65,6 +65,10 @@ auto disconnect) through the `IOService`.
 
 `EndpointFactory` holds connection configuration and lifecycle policy. `IOService` retains each registered
 factory across reconnects and exposes its live endpoint through `ActiveEndpoint` for application I/O.
+Each registration occupies one table slot containing its factory and either pending DNS state or an active endpoint.
+A queue of handles schedules pending work. Selectors access active endpoints through `ActiveEndpointLookup`, without
+knowing about factories or DNS queries. The service assigns a fresh selector token to each connection so late
+notifications from an old connection cannot affect its replacement.
 
 ## Protocols
 The aim is to support a variety of protocols, including WebSocket, HTTP, and FIX.
@@ -219,7 +223,10 @@ loop {
 ```
 
 `dispatch` closures can also capture application state directly; there is no separate context
-argument. Explicit event iterator types only need the factory type: `IOServiceEvents<'a, TradeEndpointFactory>`.
+argument. With the default DNS resolver, the event iterator is `IOServiceEvents<'a, TradeEndpointFactory>`.
+When storing events from a custom resolver, include that resolver type as the third parameter, for example
+`IOServiceEvents<'a, TradeEndpointFactory, AsyncDnsResolver>`. The iterator borrows the registration table directly
+without allocating an intermediate event collection.
 See [the context example](examples/io_service_with_context.rs) for a complete implementation that
 shares lifecycle counters across endpoints.
 

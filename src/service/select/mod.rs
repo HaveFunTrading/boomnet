@@ -1,6 +1,5 @@
 //! OS specific socket event notification mechanisms like `epoll`.
 
-use crate::service::node::{IONode, IONodes};
 use std::io;
 
 pub mod direct;
@@ -9,8 +8,15 @@ pub mod io_uring;
 #[cfg(feature = "mio")]
 pub mod mio;
 
-/// Used to uniquely identify a socket (connection) by the `Selector`.
-pub type SelectorToken = u32;
+/// Identifies one connection incarnation to a selector. Treat the value as opaque.
+/// Reconnection uses a fresh token even though the application's registration handle is unchanged.
+pub type SelectorToken = u64;
+
+/// Mutable lookup of active endpoints, excluding pending or removed registrations and stale tokens.
+pub trait ActiveEndpointLookup<E> {
+    /// Return the endpoint for this connection token, or `None` if it is no longer active.
+    fn get_active_mut(&mut self, token: SelectorToken) -> Option<&mut E>;
+}
 
 pub trait Selectable {
     fn connected(&mut self) -> io::Result<bool>;
@@ -20,14 +26,16 @@ pub trait Selectable {
     fn make_readable(&mut self) -> io::Result<()>;
 }
 
+/// Drives readiness for endpoints owned by the caller. Tokens are allocated by the service.
 pub trait Selector {
     type Target: Selectable;
 
-    fn register<F>(&mut self, selector_token: SelectorToken, io_node: &mut IONode<Self::Target, F>) -> io::Result<()>;
+    /// Register an endpoint under a fresh token that is never reused for another connection.
+    fn register(&mut self, token: SelectorToken, endpoint: &mut Self::Target) -> io::Result<()>;
 
-    fn unregister<F>(&mut self, io_node: &mut IONode<Self::Target, F>) -> io::Result<()>;
+    /// Stop observing this token before the caller drops or replaces the endpoint.
+    fn unregister(&mut self, token: SelectorToken, endpoint: &mut Self::Target) -> io::Result<()>;
 
-    fn poll<F>(&mut self, io_nodes: &mut IONodes<Self::Target, F>) -> io::Result<()>;
-
-    fn next_token(&mut self) -> SelectorToken;
+    /// Apply readiness notifications through the active-endpoint lookup. Ignore stale tokens.
+    fn poll(&mut self, endpoints: &mut impl ActiveEndpointLookup<Self::Target>) -> io::Result<()>;
 }

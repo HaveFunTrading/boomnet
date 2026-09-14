@@ -103,13 +103,15 @@ fn main() -> anyhow::Result<()> {
                     let _ = active.try_with::<()>(|_| Err(io::Error::other("timer expired")));
                     continue;
                 }
-                let batch = active.try_with(|ws| {
+                let Some(batch) = active.try_with(|ws| {
                     ws.read_batch()
                         .map(|batch| batch.into_iter().map(|frame| frame.map_err(io::Error::from)))
                         .map_err(io::Error::from)
-                })?;
+                }) else {
+                    continue;
+                };
                 for frame in batch {
-                    if let WebsocketFrame::Text(fin, data) = frame? {
+                    if let WebsocketFrame::Text(fin, data) = frame {
                         info!("({fin}) {}", String::from_utf8_lossy(data));
                     }
                 }

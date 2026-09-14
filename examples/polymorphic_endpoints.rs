@@ -142,13 +142,15 @@ fn main() -> anyhow::Result<()> {
                     handle if handle == ticker_handle => "TICKER",
                     _ => unreachable!("unknown endpoint handle"),
                 };
-                let batch = active.try_with(|ws| {
+                let Some(batch) = active.try_with(|ws| {
                     ws.read_batch()
                         .map(|batch| batch.into_iter().map(|frame| frame.map_err(io::Error::from)))
                         .map_err(io::Error::from)
-                })?;
+                }) else {
+                    continue;
+                };
                 for frame in batch {
-                    if let WebsocketFrame::Text(fin, data) = frame? {
+                    if let WebsocketFrame::Text(fin, data) = frame {
                         info!("[{label}] ({fin}) {}", String::from_utf8_lossy(data));
                     }
                 }

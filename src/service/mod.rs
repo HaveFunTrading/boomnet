@@ -65,7 +65,7 @@ pub enum IOServiceEvent<'a, E> {
 /// Guard granting access to one active endpoint.
 ///
 /// The endpoint is intentionally only exposed through [`ActiveEndpoint::try_with`]. Any I/O error
-/// returned by the action is remembered by the service and starts the endpoint's disconnect and
+/// returned by the action is consumed by the service and starts the endpoint's disconnect and
 /// recreation lifecycle on the next call to [`IOService::poll`].
 #[derive(Debug)]
 pub struct ActiveEndpoint<'a, E> {
@@ -84,19 +84,19 @@ impl<'a, E> ActiveEndpoint<'a, E> {
     /// Perform application-defined I/O with the active endpoint.
     ///
     /// The returned value may borrow the endpoint for the lifetime of this guard. If `action`
-    /// returns an error, the error is returned unchanged and a copy is retained as the endpoint's
-    /// disconnect reason. Iterator values remain guarded through [`ActiveOutput`], which also
-    /// records errors yielded by iterators of `io::Result` items.
+    /// returns an error, `None` is returned and the error is retained as the endpoint's disconnect
+    /// reason. Iterator values remain guarded through [`ActiveOutput`], which also consumes the
+    /// first error yielded by an iterator of `io::Result` items and ends the iterator.
     #[inline]
-    pub fn try_with<R>(self, action: impl FnOnce(&'a mut E) -> io::Result<R>) -> io::Result<ActiveOutput<'a, R>> {
+    pub fn try_with<R>(self, action: impl FnOnce(&'a mut E) -> io::Result<R>) -> Option<ActiveOutput<'a, R>> {
         match action(self.endpoint) {
-            Ok(value) => Ok(ActiveOutput {
+            Ok(value) => Some(ActiveOutput {
                 value,
                 pending_disconnect: self.pending_disconnect,
             }),
             Err(source) => {
                 *self.pending_disconnect = Some(DisconnectReason::IO(copy_io_error(&source)));
-                Err(source)
+                None
             }
         }
     }
@@ -105,8 +105,8 @@ impl<'a, E> ActiveEndpoint<'a, E> {
 /// A value produced through [`ActiveEndpoint::try_with`] that remains connected to the endpoint's
 /// lifecycle state.
 ///
-/// When the value is an iterator yielding `io::Result<T>`, this type forwards its items and records
-/// the first yielded error as a disconnect reason.
+/// When the value is an iterator yielding `io::Result<T>`, this type forwards successful items.
+/// The first error is consumed, recorded as a disconnect reason, and ends the iterator.
 #[derive(Debug)]
 pub struct ActiveOutput<'a, R> {
     value: R,
@@ -128,16 +128,21 @@ impl<I, T> Iterator for ActiveOutput<'_, I>
 where
     I: Iterator<Item = io::Result<T>>,
 {
-    type Item = io::Result<T>;
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let item = self.value.next()?;
-        if let Err(source) = &item
-            && self.pending_disconnect.is_none()
-        {
-            *self.pending_disconnect = Some(DisconnectReason::IO(copy_io_error(source)));
+        if self.pending_disconnect.is_some() {
+            return None;
         }
-        Some(item)
+        match self.value.next()? {
+            Ok(item) => Some(item),
+            Err(source) => {
+                if self.pending_disconnect.is_none() {
+                    *self.pending_disconnect = Some(DisconnectReason::IO(copy_io_error(&source)));
+                }
+                None
+            }
+        }
     }
 }
 
@@ -631,8 +636,8 @@ where
     }
 
     /// Dispatch command to an active endpoint using `handle` and provided `action`. If the
-    /// endpoint is currently active `Ok(Some(...))` will be returned and the provided `action` invoked,
-    /// otherwise this method will return `Ok(None)` and no `action` will be invoked.
+    /// endpoint is active and has no pending disconnect, `Ok(Some(...))` will be returned and the
+    /// provided `action` invoked. Otherwise this method returns `Ok(None)` without invoking `action`.
     /// The action receives the live endpoint and its factory, and can capture application context directly.
     pub fn dispatch<A, T>(&mut self, handle: Handle, mut action: A) -> io::Result<Option<T>>
     where
@@ -644,6 +649,9 @@ where
         let EndpointState::Active(active) = &mut registration.state else {
             return Ok(None);
         };
+        if active.pending_disconnect.is_some() {
+            return Ok(None);
+        }
         action(&mut active.endpoint, &mut registration.factory).map(Some)
     }
 }
@@ -927,7 +935,7 @@ mod tests {
         for event in service.poll(&mut ctx).unwrap() {
             if let IOServiceEvent::Active(active) = event {
                 ctx.allow_reconnect = false;
-                assert!(active.try_with::<()>(|_| Err(io::Error::other("failed"))).is_err());
+                assert!(active.try_with::<()>(|_| Err(io::Error::other("failed"))).is_none());
             }
         }
         assert!(matches!(
@@ -1074,7 +1082,7 @@ mod tests {
         let old_token = service.selector.tokens[0];
         for event in service.poll(&mut ()).unwrap() {
             if let IOServiceEvent::Active(active) = event {
-                assert!(active.try_with::<()>(|_| Err(io::Error::other("disconnect"))).is_err());
+                assert!(active.try_with::<()>(|_| Err(io::Error::other("disconnect"))).is_none());
             }
         }
         fail_new.set(true);
@@ -1167,6 +1175,46 @@ mod tests {
     }
 
     #[test]
+    fn recreatable_endpoint_error_is_consumed_and_emits_disconnected_event() {
+        let now = Rc::new(Cell::new(1));
+        let mut service = service(ManualTime(now.clone()));
+        let handle = service.register(TestEndpointFactory::new(7)).unwrap();
+        connect_next(&mut service, &now, 1);
+
+        let mut events = service.poll(&mut ()).unwrap();
+        let active = events
+            .find_map(|event| match event {
+                IOServiceEvent::Active(active) => Some(active),
+                _ => None,
+            })
+            .expect("active endpoint");
+        assert!(
+            active
+                .try_with::<()>(|_| Err(io::Error::new(ErrorKind::UnexpectedEof, "peer closed")))
+                .is_none()
+        );
+        drop(events);
+
+        let event = service.poll(&mut ()).unwrap().next().unwrap();
+        match event {
+            IOServiceEvent::Disconnected {
+                handle: event_handle,
+                reason: DisconnectReason::IO(source),
+            } => {
+                assert_eq!(event_handle, handle);
+                assert_eq!(source.kind(), ErrorKind::UnexpectedEof);
+                assert_eq!(source.to_string(), "peer closed");
+            }
+            _ => panic!("expected disconnected event"),
+        }
+        now.set(1_000_000_002);
+        assert!(matches!(
+            service.poll(&mut ()).unwrap().next(),
+            Some(IOServiceEvent::Connected { handle: event_handle }) if event_handle == handle
+        ));
+    }
+
+    #[test]
     fn returns_error_when_disconnected_endpoint_declines_recreation() {
         let now = Rc::new(Cell::new(1));
         let mut service = service(ManualTime(now.clone()));
@@ -1180,13 +1228,14 @@ mod tests {
                 _ => None,
             })
             .expect("active endpoint");
-        let source = active
-            .try_with::<()>(|endpoint| {
-                assert!(endpoint.fail);
-                Err(io::Error::new(ErrorKind::ConnectionReset, "test disconnect"))
-            })
-            .unwrap_err();
-        assert_eq!(source.kind(), ErrorKind::ConnectionReset);
+        assert!(
+            active
+                .try_with::<()>(|endpoint| {
+                    assert!(endpoint.fail);
+                    Err(io::Error::new(ErrorKind::ConnectionReset, "test disconnect"))
+                })
+                .is_none()
+        );
         drop(events);
 
         let error = match service.poll(&mut ()) {
@@ -1223,9 +1272,20 @@ mod tests {
         assert!(
             active
                 .try_with::<()>(|_| Err(io::Error::other("test disconnect")))
-                .is_err()
+                .is_none()
         );
         drop(events);
+        let mut dispatched = false;
+        assert!(
+            service
+                .dispatch(handle, |_, _| {
+                    dispatched = true;
+                    Ok(())
+                })
+                .unwrap()
+                .is_none()
+        );
+        assert!(!dispatched);
         assert!(service.deregister(handle).unwrap().is_some());
         assert_eq!(service.poll(&mut ()).unwrap().count(), 0);
     }
@@ -1245,10 +1305,18 @@ mod tests {
             })
             .expect("active endpoint");
         let mut output = active
-            .try_with(|_| Ok([Ok(7), Err(io::Error::new(ErrorKind::ConnectionAborted, "batch failed"))].into_iter()))
+            .try_with(|_| {
+                Ok([
+                    Ok(7),
+                    Err(io::Error::new(ErrorKind::ConnectionAborted, "batch failed")),
+                    Ok(8),
+                ]
+                .into_iter())
+            })
             .unwrap();
-        assert_eq!(output.next().unwrap().unwrap(), 7);
-        assert_eq!(output.next().unwrap().unwrap_err().kind(), ErrorKind::ConnectionAborted);
+        assert_eq!(output.next(), Some(7));
+        assert_eq!(output.next(), None);
+        assert_eq!(output.next(), None);
         drop(output);
         drop(events);
 

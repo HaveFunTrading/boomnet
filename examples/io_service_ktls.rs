@@ -111,15 +111,17 @@ fn main() -> anyhow::Result<()> {
     loop {
         for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
-                let batch = active.try_with(|endpoint| {
+                let Some(batch) = active.try_with(|endpoint| {
                     endpoint
                         .ws
                         .read_batch()
                         .map(|batch| batch.into_iter().map(|frame| frame.map_err(std::io::Error::from)))
                         .map_err(std::io::Error::from)
-                })?;
+                }) else {
+                    continue;
+                };
                 for frame in batch {
-                    if let WebsocketFrame::Text(fin, body) = frame? {
+                    if let WebsocketFrame::Text(fin, body) = frame {
                         println!("({fin}) {}", String::from_utf8_lossy(body));
                     }
                 }

@@ -33,11 +33,6 @@ enum ExchangeEvent {
     Text { final_fragment: bool, body: &'static [u8] },
 }
 
-#[derive(Debug)]
-enum ExchangeError {
-    IO(io::Error),
-}
-
 impl<'a> ExchangeEvents<'a> {
     fn new(io_events: IOServiceEvents<'a, TradeEndpointFactory>) -> Self {
         Self {
@@ -48,20 +43,16 @@ impl<'a> ExchangeEvents<'a> {
 }
 
 impl Iterator for ExchangeEvents<'_> {
-    type Item = Result<ExchangeEvent, ExchangeError>;
+    type Item = ExchangeEvent;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(frame) = self.active_frames.as_mut().and_then(Iterator::next) {
                 match frame {
-                    Ok(WebsocketFrame::Text(final_fragment, body)) => {
-                        return Some(Ok(ExchangeEvent::Text { final_fragment, body }));
+                    WebsocketFrame::Text(final_fragment, body) => {
+                        return Some(ExchangeEvent::Text { final_fragment, body });
                     }
-                    Ok(_) => continue,
-                    Err(error) => {
-                        self.active_frames = None;
-                        return Some(Err(ExchangeError::IO(error)));
-                    }
+                    _ => continue,
                 }
             }
             self.active_frames = None;
@@ -74,8 +65,8 @@ impl Iterator for ExchangeEvents<'_> {
                     log::warn!("disconnected: {handle:?}: {reason}");
                 }
                 IOServiceEvent::Active(active) => match active.try_with(read_frames) {
-                    Ok(frames) => self.active_frames = Some(frames),
-                    Err(error) => return Some(Err(ExchangeError::IO(error))),
+                    Some(frames) => self.active_frames = Some(frames),
+                    None => continue,
                 },
             }
         }
@@ -101,10 +92,9 @@ fn main() -> anyhow::Result<()> {
     loop {
         for event in ExchangeEvents::new(io_service.poll(&mut ())?) {
             match event {
-                Ok(ExchangeEvent::Text { final_fragment, body }) => {
+                ExchangeEvent::Text { final_fragment, body } => {
                     println!("({final_fragment}) {}", String::from_utf8_lossy(body))
                 }
-                Err(ExchangeError::IO(error)) => log::warn!("exchange I/O error: {error}"),
             }
         }
     }

@@ -161,14 +161,14 @@ fn main() -> anyhow::Result<()> {
         for event in io_service.poll(&mut ())? {
             if let IOServiceEvent::Active(active) = event {
                 let handle = active.handle();
-                active.try_with(|ws| {
+                let _ = active.try_with(|ws| {
                     for frame in ws.read_batch()? {
                         if let WebsocketFrame::Text(fin, data) = frame? {
                             println!("[{handle:?}] ({fin}) {}", String::from_utf8_lossy(data));
                         }
                     }
                     Ok(())
-                })?;
+                });
             }
         }
     }
@@ -210,13 +210,13 @@ io_service.register(TradeEndpointFactory::new("wss://stream.binance.com:443/ws",
 loop {
     for event in io_service.poll(&mut context)? {
         if let IOServiceEvent::Active(active) = event {
-            active.try_with(|ws| {
+            let _ = active.try_with(|ws| {
                 for frame in ws.read_batch()? {
                     let _frame = frame?;
                     context.frames_processed += 1;
                 }
                 Ok(())
-            })?;
+            });
         }
     }
 }

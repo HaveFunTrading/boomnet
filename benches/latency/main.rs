@@ -72,20 +72,23 @@ fn boomnet_rtt_benchmark_io_service(c: &mut Criterion) {
                 for event in io_service.poll(&mut ()).unwrap() {
                     if let IOServiceEvent::Active(active) = event {
                         if ctx.wants_write {
-                            active
+                            let connected = active
                                 .try_with(|ws| ws.send_text(true, Some(MSG.as_bytes())).map_err(std::io::Error::from))
-                                .unwrap();
+                                .is_some();
+                            if !connected {
+                                continue;
+                            }
                             ctx.wants_write = false;
                         } else {
-                            let batch = active
-                                .try_with(|ws| {
-                                    ws.read_batch()
-                                        .map(|batch| batch.into_iter().map(|frame| frame.map_err(std::io::Error::from)))
-                                        .map_err(std::io::Error::from)
-                                })
-                                .unwrap();
+                            let Some(batch) = active.try_with(|ws| {
+                                ws.read_batch()
+                                    .map(|batch| batch.into_iter().map(|frame| frame.map_err(std::io::Error::from)))
+                                    .map_err(std::io::Error::from)
+                            }) else {
+                                continue;
+                            };
                             for frame in batch {
-                                black_box(frame.unwrap());
+                                black_box(frame);
                                 ctx.processed += 1;
                             }
                         }

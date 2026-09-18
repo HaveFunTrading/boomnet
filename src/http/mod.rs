@@ -232,7 +232,16 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK
 
         builder(self.headers.clear());
 
-        let request = HttpRequest::new(method, path, body, &self.headers, conn, self.connection_pool.clone())?;
+        let request = match HttpRequest::new(method, path, body, &self.headers, conn, self.connection_pool.clone()) {
+            Ok(request) => request,
+            Err(error) => {
+                // `acquire` has marked the connection as active, but no `HttpRequest` was
+                // constructed to release it on drop. Discard the failed connection and make
+                // the pool available again.
+                self.connection_pool.borrow_mut().release(None);
+                return Err(error);
+            }
+        };
 
         Ok(Some(request))
     }
@@ -635,6 +644,51 @@ impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    struct WriteErrorStream;
+
+    impl Read for WriteErrorStream {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Ok(0)
+        }
+    }
+
+    impl Write for WriteErrorStream {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(ErrorKind::UnexpectedEof, "write failed"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct TestConnectionPool {
+        active: bool,
+        releases: Rc<Cell<usize>>,
+    }
+
+    impl ConnectionPool for TestConnectionPool {
+        type Stream = WriteErrorStream;
+
+        fn host(&self) -> &str {
+            "localhost"
+        }
+
+        fn acquire(&mut self) -> io::Result<Option<Connection<Self::Stream>>> {
+            if self.active {
+                return Ok(None);
+            }
+            self.active = true;
+            Ok(Some(Connection::new(WriteErrorStream)))
+        }
+
+        fn release(&mut self, _conn: Option<Connection<Self::Stream>>) {
+            self.active = false;
+            self.releases.set(self.releases.get() + 1);
+        }
+    }
 
     #[test]
     fn should_insert_headers() {
@@ -654,5 +708,22 @@ mod tests {
         assert_eq!("bar", headers["foo"]);
 
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn should_release_pool_when_request_construction_fails() {
+        let releases = Rc::new(Cell::new(0));
+        let pool = TestConnectionPool {
+            active: false,
+            releases: releases.clone(),
+        };
+        let mut client = HttpClient::new(pool);
+
+        assert!(client.try_new_request(Method::GET, "/", None).is_err());
+        assert_eq!(1, releases.get());
+
+        // A second construction attempt reaches the stream instead of observing a busy pool.
+        assert!(client.try_new_request(Method::GET, "/", None).is_err());
+        assert_eq!(2, releases.get());
     }
 }

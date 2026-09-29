@@ -12,11 +12,11 @@ fn main() -> anyhow::Result<()> {
 
     let factory_btc = TradeEndpointFactory::new("wss://stream1.binance.com:443/ws", None, "btcusdt");
     let factory_eth = TradeEndpointFactory::new("wss://stream2.binance.com:443/ws", None, "ethusdt");
-    let factory_xrp = TradeEndpointFactory::new("wss://stream3.binance.com:443/ws", None, "xrpusdt");
+    // let factory_xrp = TradeEndpointFactory::new("wss://stream3.binance.com:443/ws", None, "xrpusdt");
 
     io_service.register(factory_btc)?;
     io_service.register(factory_eth)?;
-    io_service.register(factory_xrp)?;
+    // io_service.register(factory_xrp)?;
 
     loop {
         for event in io_service.poll(&mut ())? {

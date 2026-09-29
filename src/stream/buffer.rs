@@ -54,6 +54,12 @@ pub struct BufferedStream<S, const N: usize = DEFAULT_BUFFER_SIZE> {
     cursor: usize,
 }
 
+impl<S, const N: usize> std::fmt::Debug for BufferedStream<S, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferedStream").field("cursor", &self.cursor).finish()
+    }
+}
+
 impl<S: AsRawFd, const N: usize> AsRawFd for BufferedStream<S, N> {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.as_raw_fd()

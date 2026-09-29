@@ -60,7 +60,7 @@ impl<S, const N: usize> std::fmt::Debug for BufferedStream<S, N> {
     }
 }
 
-impl<S: AsRawFd> AsRawFd for BufferedStream<S> {
+impl<S: AsRawFd, const N: usize> AsRawFd for BufferedStream<S, N> {
     fn as_raw_fd(&self) -> RawFd {
         self.inner.as_raw_fd()
     }
@@ -138,7 +138,7 @@ where
     }
 }
 
-impl<S: Selectable> Selectable for BufferedStream<S> {
+impl<S: Selectable, const N: usize> Selectable for BufferedStream<S, N> {
     fn connected(&mut self) -> io::Result<bool> {
         self.inner.connected()
     }
@@ -153,7 +153,7 @@ impl<S: Selectable> Selectable for BufferedStream<S> {
 }
 
 #[cfg(feature = "mio")]
-impl<S: Source> Source for BufferedStream<S> {
+impl<S: Source, const N: usize> Source for BufferedStream<S, N> {
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
         registry.register(&mut self.inner, token, interests)
     }

@@ -45,7 +45,7 @@ pub const DEFAULT_CHUNK_SIZE: usize = 1024;
 
 type HttpTlsConnection = Connection<BufferedStream<TlsStream<TcpStream>>>;
 
-/// Re-usable container to store headers
+/// Request-scoped container for outgoing headers.
 #[derive(Default)]
 pub struct Headers<'a> {
     inner: SmallVec<[(&'a str, &'a str); 32]>,
@@ -92,19 +92,11 @@ impl<'a> Headers<'a> {
     fn iter(&self) -> impl Iterator<Item = &(&str, &str)> {
         self.inner.iter()
     }
-
-    /// Clear all headers.
-    #[inline]
-    fn clear(&mut self) -> &mut Self {
-        self.inner.clear();
-        self
-    }
 }
 
 /// A generic HTTP client that uses a pooled connection strategy.
 pub struct HttpClient<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE> {
     connection_pool: Rc<RefCell<C>>,
-    headers: Headers<'static>,
 }
 
 impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK_SIZE> {
@@ -112,9 +104,6 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK
     pub fn new(connection_pool: C) -> HttpClient<C, CHUNK_SIZE> {
         Self {
             connection_pool: Rc::new(RefCell::new(connection_pool)),
-            headers: Headers {
-                inner: SmallVec::with_capacity(32),
-            },
         }
     }
 
@@ -142,7 +131,7 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK
     /// ).unwrap();
     /// ```
     #[inline]
-    pub fn new_request_with_headers<F>(
+    pub fn new_request_with_headers<'headers, F>(
         &mut self,
         method: Method,
         path: impl AsRef<str>,
@@ -150,7 +139,7 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK
         builder: F,
     ) -> io::Result<HttpRequest<C, CHUNK_SIZE>>
     where
-        F: FnOnce(&mut Headers),
+        F: FnOnce(&mut Headers<'headers>),
     {
         self.try_new_request_with_headers(method, path, body, builder)?
             .ok_or_else(|| io::Error::new(io::ErrorKind::WouldBlock, "no available connection in the pool"))
@@ -216,7 +205,7 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK
     /// }
     /// ```
     #[inline]
-    pub fn try_new_request_with_headers<F>(
+    pub fn try_new_request_with_headers<'headers, F>(
         &mut self,
         method: Method,
         path: impl AsRef<str>,
@@ -224,15 +213,16 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpClient<C, CHUNK
         builder: F,
     ) -> io::Result<Option<HttpRequest<C, CHUNK_SIZE>>>
     where
-        F: FnOnce(&mut Headers),
+        F: FnOnce(&mut Headers<'headers>),
     {
         let Some(conn) = self.connection_pool.borrow_mut().acquire()? else {
             return Ok(None);
         };
 
-        builder(self.headers.clear());
+        let mut headers = Headers::default();
+        builder(&mut headers);
 
-        let request = match HttpRequest::new(method, path, body, &self.headers, conn, self.connection_pool.clone()) {
+        let request = match HttpRequest::new(method, path, body, &headers, conn, self.connection_pool.clone()) {
             Ok(request) => request,
             Err(error) => {
                 // `acquire` has marked the connection as active, but no `HttpRequest` was
@@ -725,5 +715,24 @@ mod tests {
         // A second construction attempt reaches the stream instead of observing a busy pool.
         assert!(client.try_new_request(Method::GET, "/", None).is_err());
         assert_eq!(2, releases.get());
+    }
+
+    #[test]
+    fn should_accept_request_scoped_header_values() {
+        let releases = Rc::new(Cell::new(0));
+        let pool = TestConnectionPool {
+            active: false,
+            releases,
+        };
+        let mut client = HttpClient::new(pool);
+        let signature = String::from("request-scoped-signature");
+        let timestamp = 1_790_027_709_u64.to_string();
+
+        let result = client.try_new_request_with_headers(Method::GET, "/", None, |headers| {
+            headers.insert("ACCESS-SIGN", &signature);
+            headers.insert("ACCESS-TIMESTAMP", &timestamp);
+        });
+
+        assert!(result.is_err());
     }
 }

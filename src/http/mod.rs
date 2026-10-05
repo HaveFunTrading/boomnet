@@ -367,10 +367,88 @@ enum State {
         content_len: usize,
         status_code: u16,
     },
+    ReadingChunkedBody {
+        header_len: usize,
+        status_code: u16,
+    },
     Done {
         header_len: usize,
         status_code: u16,
     },
+}
+
+fn find_crlf(finder: &Finder, bytes: &[u8], start: usize) -> Option<usize> {
+    finder.find(bytes.get(start..)?, b"\r\n").map(|offset| start + offset)
+}
+
+fn parse_chunk_size(line: &[u8]) -> io::Result<usize> {
+    let size = line.split(|byte| *byte == b';').next().unwrap_or_default();
+    if size.is_empty() {
+        return Err(io::Error::new(ErrorKind::InvalidData, "missing HTTP chunk size"));
+    }
+    let size = std::str::from_utf8(size).map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
+    usize::from_str_radix(size, 16).map_err(|error| io::Error::new(ErrorKind::InvalidData, error))
+}
+
+/// Return the encoded body length once the terminating chunk and trailers are complete.
+fn chunked_body_len(finder: &Finder, body: &[u8]) -> io::Result<Option<usize>> {
+    let mut offset = 0;
+    loop {
+        let Some(line_end) = find_crlf(finder, body, offset) else {
+            return Ok(None);
+        };
+        let chunk_size = parse_chunk_size(&body[offset..line_end])?;
+        offset = line_end + 2;
+
+        if chunk_size == 0 {
+            // A chunked message ends with an empty trailer line. Non-empty lines before it
+            // are optional trailer fields.
+            loop {
+                let line_start = offset;
+                let Some(line_end) = find_crlf(finder, body, offset) else {
+                    return Ok(None);
+                };
+                offset = line_end + 2;
+                if line_end == line_start {
+                    return Ok(Some(offset));
+                }
+            }
+        }
+
+        let data_end = offset
+            .checked_add(chunk_size)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "HTTP chunk size overflow"))?;
+        let framed_end = data_end
+            .checked_add(2)
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "HTTP chunk size overflow"))?;
+        if body.len() < framed_end {
+            return Ok(None);
+        }
+        if body[data_end..framed_end] != *b"\r\n" {
+            return Err(io::Error::new(ErrorKind::InvalidData, "HTTP chunk is missing trailing CRLF"));
+        }
+        offset = framed_end;
+    }
+}
+
+fn decode_chunked_body(finder: &Finder, buffer: &mut Vec<u8>, header_len: usize) -> io::Result<()> {
+    let mut read_offset = header_len;
+    let mut write_offset = header_len;
+    loop {
+        let line_end = find_crlf(finder, buffer, read_offset)
+            .ok_or_else(|| io::Error::new(ErrorKind::UnexpectedEof, "incomplete HTTP chunk size"))?;
+        let chunk_size = parse_chunk_size(&buffer[read_offset..line_end])?;
+        read_offset = line_end + 2;
+        if chunk_size == 0 {
+            buffer.truncate(write_offset);
+            return Ok(());
+        }
+
+        let data_end = read_offset + chunk_size;
+        buffer.copy_within(read_offset..data_end, write_offset);
+        write_offset += chunk_size;
+        read_offset = data_end + 2;
+    }
 }
 
 impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUNK_SIZE> {
@@ -465,13 +543,30 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUN
     pub fn poll(&mut self) -> io::Result<Option<(u16, &str, &str)>> {
         if let Some(conn) = self.conn.as_mut() {
             match self.state {
-                State::ReadingHeaders | State::ReadingBody { .. } => conn.poll()?,
+                State::ReadingHeaders => conn.poll()?,
+                State::ReadingBody {
+                    header_len,
+                    content_len,
+                    ..
+                } => {
+                    let total_len = header_len
+                        .checked_add(content_len)
+                        .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "HTTP content length overflow"))?;
+                    if conn.buffer.len() < total_len {
+                        conn.poll()?;
+                    }
+                }
+                State::ReadingChunkedBody { header_len, .. } => {
+                    if chunked_body_len(&conn.line_end_finder, &conn.buffer[header_len..])?.is_none() {
+                        conn.poll()?;
+                    }
+                }
                 State::Done { .. } => {}
             }
             match self.state {
                 State::ReadingHeaders => {
                     if conn.buffer.len() >= 4
-                        && let Some(headers_end) = conn.header_finder.find(&conn.buffer, b"\r\n\r\n")
+                        && let Some(headers_end) = conn.headers_end_finder.find(&conn.buffer, b"\r\n\r\n")
                     {
                         let header_len = headers_end + 4;
                         let header_slice = &conn.buffer[..header_len];
@@ -484,19 +579,36 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUN
                                     .code
                                     .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "missing status code"))?;
                                 let mut content_len = 0;
+                                let mut chunked = false;
                                 for header in resp.headers {
                                     if header.name.eq_ignore_ascii_case("Content-Length") {
                                         content_len = std::str::from_utf8(header.value)
                                             .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?
                                             .parse()
                                             .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-                                        break;
+                                    } else if header.name.eq_ignore_ascii_case("Transfer-Encoding") {
+                                        let encoding = std::str::from_utf8(header.value)
+                                            .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+                                        if !encoding.trim().eq_ignore_ascii_case("chunked") {
+                                            return Err(io::Error::new(
+                                                ErrorKind::InvalidData,
+                                                format!("unsupported HTTP transfer encoding: {encoding}"),
+                                            ));
+                                        }
+                                        chunked = true;
                                     }
                                 }
-                                self.state = State::ReadingBody {
-                                    header_len,
-                                    content_len,
-                                    status_code,
+                                self.state = if chunked {
+                                    State::ReadingChunkedBody {
+                                        header_len,
+                                        status_code,
+                                    }
+                                } else {
+                                    State::ReadingBody {
+                                        header_len,
+                                        content_len,
+                                        status_code,
+                                    }
                                 };
                             }
                             Ok(httparse::Status::Partial) => {
@@ -511,8 +623,22 @@ impl<C: ConnectionPool<CHUNK_SIZE>, const CHUNK_SIZE: usize> HttpRequest<C, CHUN
                     content_len,
                     status_code,
                 } => {
-                    let total_len = header_len + content_len;
+                    let total_len = header_len
+                        .checked_add(content_len)
+                        .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "HTTP content length overflow"))?;
                     if conn.buffer.len() >= total_len {
+                        self.state = State::Done {
+                            header_len,
+                            status_code,
+                        };
+                    }
+                }
+                State::ReadingChunkedBody {
+                    header_len,
+                    status_code,
+                } => {
+                    if chunked_body_len(&conn.line_end_finder, &conn.buffer[header_len..])?.is_some() {
+                        decode_chunked_body(&conn.line_end_finder, &mut conn.buffer, header_len)?;
                         self.state = State::Done {
                             header_len,
                             status_code,
@@ -558,7 +684,8 @@ pub struct Connection<S, const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE> {
     stream: S,
     buffer: Vec<u8>,
     disconnected: bool,
-    header_finder: Finder,
+    headers_end_finder: Finder,
+    line_end_finder: Finder,
 }
 
 impl<S: Read + Write, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
@@ -620,7 +747,8 @@ impl<S, const CHUNK_SIZE: usize> Connection<S, CHUNK_SIZE> {
             stream,
             buffer: Vec::with_capacity(CHUNK_SIZE),
             disconnected: false,
-            header_finder: Finder::new(b"\r\n\r\n"),
+            headers_end_finder: Finder::new(b"\r\n\r\n"),
+            line_end_finder: Finder::new(b"\r\n"),
         }
     }
 
@@ -680,6 +808,51 @@ mod tests {
         }
     }
 
+    struct FragmentedResponseStream {
+        response: Vec<u8>,
+        offset: usize,
+    }
+
+    impl Read for FragmentedResponseStream {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.offset == self.response.len() {
+                return Ok(0);
+            }
+            let read = buffer.len().min(self.response.len() - self.offset);
+            buffer[..read].copy_from_slice(&self.response[self.offset..self.offset + read]);
+            self.offset += read;
+            Ok(read)
+        }
+    }
+
+    impl Write for FragmentedResponseStream {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct FragmentedResponsePool(Option<FragmentedResponseStream>);
+
+    impl ConnectionPool<8> for FragmentedResponsePool {
+        type Stream = FragmentedResponseStream;
+
+        fn host(&self) -> &str {
+            "localhost"
+        }
+
+        fn acquire(&mut self) -> io::Result<Option<Connection<Self::Stream, 8>>> {
+            Ok(self.0.take().map(Connection::new))
+        }
+
+        fn release(&mut self, connection: Option<Connection<Self::Stream, 8>>) {
+            self.0 = connection.map(|connection| connection.stream);
+        }
+    }
+
     #[test]
     fn should_insert_headers() {
         let mut headers = Headers::default();
@@ -734,5 +907,52 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn should_detect_and_decode_a_complete_chunked_body() {
+        let headers = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+        let encoded = b"4\r\nWiki\r\n5;extension=yes\r\npedia\r\n0\r\nChecksum: value\r\n\r\n";
+        let mut response = [headers.as_slice(), encoded.as_slice()].concat();
+        let finder = Finder::new(b"\r\n");
+
+        assert_eq!(Some(encoded.len()), chunked_body_len(&finder, &response[headers.len()..]).unwrap());
+        decode_chunked_body(&finder, &mut response, headers.len()).unwrap();
+
+        assert_eq!(b"Wikipedia", &response[headers.len()..]);
+    }
+
+    #[test]
+    fn should_poll_a_fragmented_chunked_response_to_completion() {
+        let response = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n";
+        let pool = FragmentedResponsePool(Some(FragmentedResponseStream {
+            response: response.to_vec(),
+            offset: 0,
+        }));
+        let mut client: HttpClient<_, 8> = HttpClient::new(pool);
+
+        let (status, headers, body) = client.new_request(Method::GET, "/", None).unwrap().block().unwrap();
+
+        assert_eq!(200, status);
+        assert!(headers.contains("Transfer-Encoding: chunked"));
+        assert_eq!("Wikipedia", body);
+    }
+
+    #[test]
+    fn should_wait_for_the_chunked_message_terminator() {
+        let encoded = b"4\r\nWiki\r\n0\r\n\r\n";
+        let finder = Finder::new(b"\r\n");
+
+        for prefix_len in 0..encoded.len() {
+            assert_eq!(None, chunked_body_len(&finder, &encoded[..prefix_len]).unwrap());
+        }
+        assert_eq!(Some(encoded.len()), chunked_body_len(&finder, encoded).unwrap());
+    }
+
+    #[test]
+    fn should_reject_invalid_chunk_framing() {
+        let error = chunked_body_len(&Finder::new(b"\r\n"), b"4\r\nWikipX").unwrap_err();
+
+        assert_eq!(ErrorKind::InvalidData, error.kind());
     }
 }
